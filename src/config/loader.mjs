@@ -1,0 +1,76 @@
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { defaults } from "./defaults.mjs"
+
+export function loadConfig(argv) {
+  const projectConfig = readSimpleYaml(join(process.cwd(), ".ai", "config.yaml"))
+  const env = compactObject({
+    provider: process.env.TWILLIGHT_PROVIDER,
+    model: process.env.TWILLIGHT_MODEL,
+    streaming: bool(process.env.TWILLIGHT_STREAM),
+    actions: bool(process.env.TWILLIGHT_ACTIONS),
+    status: bool(process.env.TWILLIGHT_STATUS),
+    compact: bool(process.env.TWILLIGHT_COMPACT),
+    workspace: process.env.TWILLIGHT_WORKSPACE,
+    permissionMode: process.env.TWILLIGHT_PERMISSION,
+    commandAllowlist: process.env.TWILLIGHT_COMMAND_ALLOWLIST,
+    enabledTools: process.env.TWILLIGHT_ENABLED_TOOLS,
+    uncensoredModel: process.env.TWILLIGHT_UNCENSORED_MODEL,
+    fallbackModels: process.env.TWILLIGHT_FALLBACK_MODELS,
+    maxTokens: number(process.env.TWILLIGHT_MAX_TOKENS),
+    requestTimeoutMs: number(process.env.TWILLIGHT_REQUEST_TIMEOUT_MS),
+    queueDelayMs: number(process.env.TWILLIGHT_QUEUE_DELAY_MS),
+  })
+  const cli = parseFlags(argv)
+  return { ...defaults, ...projectConfig, ...env, ...cli }
+}
+
+function parseFlags(argv) {
+  const result = {}
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index]
+    if (item === "--read-only") result.permissionMode = "read-only"
+    else if (item === "--workspace") result.permissionMode = "workspace"
+    else if (item === "--standard") result.permissionMode = "standard"
+    else if (item === "--full-access") result.permissionMode = "full-access"
+    else if (item === "--provider") result.provider = argv[++index]
+    else if (item === "--model") result.model = argv[++index]
+  }
+  return result
+}
+
+function readSimpleYaml(file) {
+  if (!existsSync(file)) return {}
+  return Object.fromEntries(
+    readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes(":"))
+      .map((line) => {
+        const index = line.indexOf(":")
+        return [line.slice(0, index).trim(), coerce(line.slice(index + 1).trim())]
+      }),
+  )
+}
+
+function coerce(value) {
+  if (value === "true") return true
+  if (value === "false") return false
+  if (/^\d+$/.test(value)) return Number(value)
+  return value.replace(/^["']|["']$/g, "")
+}
+
+function bool(value) {
+  if (value === undefined) return undefined
+  return value !== "0" && value !== "false"
+}
+
+function number(value) {
+  if (value === undefined || value === "") return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter((entry) => entry[1] !== undefined && entry[1] !== ""))
+}

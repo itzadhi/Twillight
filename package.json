@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "twillight",
+  "version": "1.0.0",
+  "description": "Twillight AI-powered development tool",
+  "private": false,
+  "type": "module",
+  "packageManager": "npm@11.12.1",
+  "scripts": {
+    "start": "node script/run-node.mjs",
+    "dev": "node script/run-node.mjs",
+    "client": "node script/run-node.mjs",
+    "mcp": "node src/mcp/server.mjs",
+    "test": "node tests/run-tests.mjs"
+  },
+  "bin": {
+    "twillight": "script/run-node.mjs",
+    "twillight-mcp": "src/mcp/server.mjs"
+  },
+  "files": [
+    "src",
+    "script",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "twillight",
+    "terminal",
+    "ai",
+    "coding-agent",
+    "openrouter",
+    "opentui"
+  ],
+  "license": "MIT",
+  "prettier": {
+    "semi": false,
+    "printWidth": 120
+  },
+  "dependencies": {
+    "@opentui/core": "^0.4.3"
+  }
+}
