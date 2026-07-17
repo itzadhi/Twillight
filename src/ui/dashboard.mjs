@@ -256,9 +256,12 @@ function footerLine(state, width) {
 
 function statusText(state, width) {
   const provider = titleProvider(state.provider?.provider || state.config.provider)
-  const left = `${rgb(theme.text, "Build")} ${rgb(theme.muted, `· ${provider}`)} ${rgb(theme.border, "·")} ${rgb(theme.text, truncate(state.config.model, 32))}`
   const right = `${rgb(theme.muted, tokenText(state))}   ${rgb(theme.text, "ctrl+p")} ${rgb(theme.muted, "commands")}`
-  const gap = " ".repeat(Math.max(1, width - clean(left).length - clean(right).length))
+  const contentWidth = Math.max(1, width - 1)
+  const prefix = `${rgb(theme.text, "Build")} ${rgb(theme.muted, `· ${provider}`)} ${rgb(theme.border, "·")} `
+  const modelWidth = Math.max(8, contentWidth - clean(prefix).length - clean(right).length - 2)
+  const left = `${prefix}${rgb(theme.text, truncate(state.config.model, modelWidth))}`
+  const gap = " ".repeat(Math.max(1, contentWidth - clean(left).length - clean(right).length))
   return `${left}${gap}${right}`
 }
 

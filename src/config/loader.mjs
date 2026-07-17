@@ -25,7 +25,22 @@ export function loadConfig(argv) {
     queueDelayMs: number(process.env.TWILLIGHT_QUEUE_DELAY_MS),
   })
   const cli = parseFlags(argv)
-  return { ...defaults, ...projectConfig, ...env, ...cli }
+  return normalizeConfig({ ...defaults, ...projectConfig, ...env, ...cli })
+}
+
+function normalizeConfig(config) {
+  const inferredProvider = inferProviderFromModel(config.model)
+  if (inferredProvider && inferredProvider !== config.provider) {
+    return { ...config, provider: inferredProvider }
+  }
+  return config
+}
+
+function inferProviderFromModel(model) {
+  const value = String(model || "").trim().toLowerCase()
+  if (value.startsWith("@cf/")) return "cloudflare"
+  if (value.endsWith(":free")) return "openrouter"
+  return ""
 }
 
 function parseFlags(argv) {

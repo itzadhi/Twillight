@@ -74,8 +74,12 @@ export function filesystemTools() {
       const to = normalizePath(state, input.to, { workspaceOnly: state.config.permissionMode !== "full-access" })
       assertSafeMutation(state, from, { delete: true })
       assertSafeMutation(state, to)
+      if (!existsSync(from)) throw new Error(`Path not found: ${from}`)
+      const destinationExisted = existsSync(to)
+      const destinationContent = destinationExisted && statSync(to).isFile() ? readFileSync(to, "utf8") : null
       mkdirSync(dirname(to), { recursive: true })
       renameSync(from, to)
+      state.backups.push({ type: "move", from, to, destinationExisted, destinationContent })
       state.changes.push({ type: "move", path: `${from} -> ${to}` })
       return { from, to }
     }),

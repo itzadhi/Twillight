@@ -60,7 +60,7 @@ export async function getApiKeys(root, provider, ui) {
   if (!value) throw new Error(`${envName} was not provided.`)
   saveApiKey(root, provider, value)
   ui.dim(`[Twillight] saved ${envName} to ${credentialPath(root)}`)
-  return value
+  return [value]
 }
 
 export function apiKeyEnvName(provider) {
@@ -83,6 +83,7 @@ export function saveApiKey(root, provider, value, options = {}) {
 }
 
 export function hasSavedApiKey(root, provider) {
+  if (providerInfo(provider).noAuth) return true
   return Boolean(readEnvKeys(provider).length || savedKeys(readCredentials(root), provider).length)
 }
 

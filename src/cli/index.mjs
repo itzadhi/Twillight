@@ -150,7 +150,9 @@ function persistProjectConfig(state) {
     `permissionMode: ${state.config.permissionMode}`,
     `agentMode: ${state.config.agentMode}`,
     `streaming: ${state.config.streaming ? "true" : "false"}`,
+    `pet: ${state.config.pet || "sprite"}`,
   ]
+  if (state.enabledTools?.length) lines.push(`enabledTools: ${state.enabledTools.join(",")}`)
   if (state.config.cloudflareGatewayUrl) lines.push(`cloudflareGatewayUrl: ${state.config.cloudflareGatewayUrl}`)
   writeFileSync(file, `${lines.join("\n")}\n`)
   state.ui.debug?.(`saved config ${file}`)
@@ -550,6 +552,8 @@ async function handleInput(state, input) {
       return true
     }
     state.previousModel = state.config.model
+    const inferredProvider = inferProviderFromModel(value, state.config.provider)
+    if (inferredProvider && inferredProvider !== state.config.provider) state.config.provider = inferredProvider
     state.config.model = value
     state.provider = createProvider(state.config, state.root, state.ui)
     state.saveConfig?.()
@@ -636,6 +640,7 @@ function setTool(state, value) {
   if (mode === "on") current.add(name)
   else current.delete(name)
   state.enabledTools = [...current]
+  state.saveConfig?.()
   return toolsStatus(state)
 }
 
@@ -652,6 +657,7 @@ function setToolPreset(state, value) {
   const selected = presets[value]
   if (!selected) throw new Error("Use /tool-preset all, read, safe, edit, code, or autonomous.")
   state.enabledTools = value === "all" ? [] : selected
+  state.saveConfig?.()
   return toolsStatus(state)
 }
 
@@ -693,7 +699,15 @@ async function setProvider(state, value) {
 }
 
 export function isLikelyModelId(value) {
-  return /^@?[a-z0-9_.-]+(?:\/[a-z0-9_.:-]+)+$/i.test(value)
+  const text = String(value || "").trim()
+  return !/^\d+$/.test(text) && /^@?[a-z0-9][a-z0-9_.:-]*(?:\/[a-z0-9_.:-]+)*$/i.test(text)
+}
+
+function inferProviderFromModel(model, currentProvider = "") {
+  const value = String(model || "").trim().toLowerCase()
+  if (value.startsWith("@cf/")) return "cloudflare"
+  if (value.endsWith(":free")) return "openrouter"
+  return normalizeProviderName(currentProvider) || ""
 }
 
 function modelStatus(state) {
@@ -771,7 +785,7 @@ async function safeSlash(state, input) {
 
 async function safeRunTask(state, input) {
   try {
-    await runTask(state, input)
+    await handleInput(state, input)
   } catch (error) {
     showTwillight(state, input, friendlyError(error))
   }
@@ -850,7 +864,7 @@ function casualResponse(input) {
   if (/^(hi|hello|hey|yo|wsp|sup|what'?s up|wassup|whats up)(\s+(man|bro|dude|mate|adhi|there))*[!.? ]*$/.test(text)) {
     return "Hey, I'm here. What are we building or fixing?"
   }
-  if (/^whatcan(you)?d[op]/.test(compact) || /^what(can|could)(you)?do$/.test(compact)) {
+  if (/\bwhat\s+can\s+(you\s+)?do\b/.test(text) || /^whatcan(you)?d[op]/.test(compact) || /whatcan(you)?do/.test(compact)) {
     return [
       "I can inspect and edit files, create scripts, run safe commands, debug errors, review diffs, manage models/providers, attach images, and use local tools in this folder.",
       "",
@@ -1014,6 +1028,7 @@ function setPet(state, value) {
     return showTwillight(state, "/dragon", "Developer dragon is locked. Run inside the itzadhi/twillight repo or set TWILLIGHT_CREATOR=itzadhi.")
   }
   state.config.pet = value
+  state.saveConfig?.()
   return petStatus(state)
 }
 
@@ -1077,6 +1092,7 @@ function envStatus(state) {
 
 function setAgentMode(state, mode) {
   state.config.agentMode = mode
+  state.saveConfig?.()
   state.ui.box("mode", [state.ui.row("agent", mode)])
   status(state)
   return true
@@ -1124,6 +1140,7 @@ async function saveKeyPrompt(state, requestedProvider = "", append = false) {
 
 async function ensureInteractiveKey(state) {
   if (!process.stdin.isTTY) return
+  if (providerInfo(state.provider.provider).noAuth) return
   if (hasSavedApiKey(state.root, state.provider.provider)) return
   await saveKeyPrompt(state)
 }

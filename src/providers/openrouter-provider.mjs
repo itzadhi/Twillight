@@ -72,6 +72,7 @@ async function cloudflareChat(url, config, messages) {
     temperature: config.temperature,
     max_tokens: Number(config.maxTokens || 2048),
     maxTokens: Number(config.maxTokens || 2048),
+    stream: false,
   }
   const response = await fetch(url, {
     method: "POST",
@@ -210,14 +211,18 @@ async function stream(response, callbacks) {
   return { content: content.trim(), usage, debug }
 }
 
-function responseFromJson(data, debug = {}) {
+export function responseFromJson(data, debug = {}) {
   const choice = data.choices?.[0] || {}
   const direct =
     normalizeProviderContent(data.response)
     || normalizeProviderContent(data.content)
     || normalizeProviderContent(data.message)
+    || normalizeProviderContent(data.output)
+    || normalizeProviderContent(data.output_text)
+    || normalizeProviderContent(data.result)
     || normalizeProviderContent(data.result?.response)
     || normalizeProviderContent(data.result?.content)
+    || normalizeProviderContent(data.result?.message)
   return {
     content:
       direct
@@ -239,12 +244,24 @@ function responseFromJson(data, debug = {}) {
 
 export function normalizeProviderContent(value) {
   if (typeof value === "string") return value.trim()
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return normalizeProviderContent(value.response)
+      || normalizeProviderContent(value.content)
+      || normalizeProviderContent(value.text)
+      || normalizeProviderContent(value.output)
+      || normalizeProviderContent(value.output_text)
+      || normalizeProviderContent(value.message)
+      || normalizeProviderContent(value.result)
+  }
   if (!Array.isArray(value)) return ""
   return value
     .map((item) => {
       if (typeof item === "string") return item
       if (typeof item?.text === "string") return item.text
       if (typeof item?.content === "string") return item.content
+      if (typeof item?.response === "string") return item.response
+      if (typeof item?.output_text === "string") return item.output_text
+      if (typeof item?.message?.content === "string") return item.message.content
       return ""
     })
     .join("")

@@ -1,10 +1,11 @@
 import { createPlan } from "./planner.mjs"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { validationCommands } from "./validator.mjs"
 import { needsApproval, planLocalWorkflow, workflowStates } from "./workflow.mjs"
 import { unifiedDiff } from "../utils/terminal.mjs"
 import { renderChatTurn, renderCommandPalette, renderInputPrompt } from "../ui/dashboard.mjs"
+import { providerInfo } from "../providers/catalog.mjs"
 
 export async function runTask(state, task) {
   loadProjectMemory(state)
@@ -46,12 +47,12 @@ export async function askModel(state, task) {
 export function polishAssistantText(value) {
   let text = String(value || "").trim()
   if (!text) return text
-  const repeated = repeatedLineSummary(text)
+  const repeated = repeatedNoiseSummary(text) || repeatedLineSummary(text)
   if (repeated) return repeated
   const whitespace = (text.match(/\s/g) || []).length
   const camelJams = (text.match(/[a-z][A-Z]/g) || []).length
   const punctuationJams = (text.match(/[.!?;:][A-Za-z0-9"']/g) || []).length
-  const knownJams = /(Theuser|Thesystem|Ishould|Thislooks|Theyprobably|Inmanycontexts|Themodel|However|Butwe|Wecould|Orewould|Idon|Whatcan|Whatwould|yourmodelname)/.test(text)
+  const knownJams = /(Theuser|Thesystem|Ishould|Thislooks|Theyprobably|Inmanycontexts|Themodel|However|Butwe|Wecould|Orewould|Idon|Whatcan|Whatwould|yourmodelname|Icanhelp|Iunderstand|Iinfer|Ihaveaccess|Icanuse|Ifollow|I'ma|I'min|Here'?swhat|CoreCapabilities|Projectplanning|WhatIcan)/.test(text)
   const looksCompressed =
     text.length > 80 && whitespace < text.length / 28 && (camelJams + punctuationJams) > 3
     || text.length > 40 && knownJams && whitespace < text.length / 12
@@ -62,6 +63,26 @@ export function polishAssistantText(value) {
     .replace(/\bThislookslike/g, "This looks like")
     .replace(/\bTheyprobably/g, "They probably")
     .replace(/\bIshouldanswer/g, "I should answer")
+    .replace(/\bI'ma/g, "I'm a")
+    .replace(/\bI'min/g, "I'm in")
+    .replace(/\bIcanhelp/g, "I can help")
+    .replace(/\bIunderstand/g, "I understand")
+    .replace(/\bIinfer/g, "I infer")
+    .replace(/\bIhaveaccess/g, "I have access")
+    .replace(/\bIcanuse/g, "I can use")
+    .replace(/\bIfollow/g, "I follow")
+    .replace(/\bHere'swhat/g, "Here's what")
+    .replace(/\bCoreCapabilities/g, "Core Capabilities")
+    .replace(/\bProjectplanning/g, "Project planning")
+    .replace(/\bWhatIcan/g, "What I can")
+    .replace(/\banautonomous/g, "an autonomous")
+    .replace(/senior-gradecodingsystem/g, "senior-grade coding system")
+    .replace(/codingsystem/g, "coding system")
+    .replace(/systemwithawarm/g, "system with a warm")
+    .replace(/withawarm/g, "with a warm")
+    .replace(/warmterminalpersonality/g, "warm terminal personality")
+    .replace(/\bI'm asenior/g, "I'm a senior")
+    .replace(/\bterminalpersonality/g, "terminal personality")
     .replace(/\bTheuser/g, "The user")
     .replace(/\bThesystem/g, "The system")
     .replace(/\bIshould/g, "I should")
@@ -79,12 +100,62 @@ export function polishAssistantText(value) {
     .replace(/\byourmodelname/g, "your model name")
     .replace(/\bmodelname/g, "model name")
     .replace(/([.!?;:])(?=[A-Za-z0-9"'])/g, "$1 ")
+    .replace(/([a-z])(?=(?:I|I'm|Here|Core|Project|What)[A-Z])/g, "$1 ")
     .replace(/([a-z])(?=[A-Z][a-z])/g, "$1 ")
     .replace(/([a-zA-Z])(?=\d)/g, "$1 ")
     .replace(/(\d)(?=[A-Za-z])/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim()
+  const repairedWhitespace = (text.match(/\s/g) || []).length
+  if (text.length > 120 && repairedWhitespace < text.length / 20) {
+    return [
+      "The model returned compressed text, so I stopped it instead of showing unreadable output.",
+      "",
+      "Try again, or switch to a steadier model with `/models` or `/provider cloudflare`.",
+    ].join("\n")
+  }
   return text
+}
+
+function repeatedNoiseSummary(value) {
+  const compact = String(value || "").replace(/\s+/g, "")
+  if (compact.length < 120) return ""
+  const markers = [
+    "Ortheywanttorun",
+    "Theuserasks",
+    "Thesystemsays",
+    "Thislookslike",
+    "Theyprobably",
+    "Ishouldanswer",
+    "Icanhelp",
+    "asacommandtoshowhelp",
+  ]
+  for (const marker of markers) {
+    const count = countOccurrences(compact, marker)
+    if (count >= 3) return repeatedSummary(`compressed marker "${marker}" repeated ${count}x`)
+  }
+  for (let size = 24; size <= 100; size += 4) {
+    const chunk = compact.slice(0, size)
+    if (chunk.length < size) continue
+    let cursor = 0
+    let count = 0
+    while (compact.slice(cursor, cursor + size) === chunk) {
+      count += 1
+      cursor += size
+    }
+    if (count >= 3) return repeatedSummary(`same ${size}-character chunk repeated ${count}x`)
+  }
+  return ""
+}
+
+function countOccurrences(value, marker) {
+  let index = 0
+  let count = 0
+  while ((index = value.indexOf(marker, index)) !== -1) {
+    count += 1
+    index += marker.length
+  }
+  return count
 }
 
 function repeatedLineSummary(value) {
@@ -97,12 +168,16 @@ function repeatedLineSummary(value) {
   for (const line of lines) counts.set(line, (counts.get(line) || 0) + 1)
   const [line, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || ["", 0]
   if (count < 5 || count < lines.length * 0.45) return ""
+  return repeatedSummary(`${count} repeated lines: ${line}`)
+}
+
+function repeatedSummary(detail) {
   return [
     "The model repeated itself, so I stopped the noisy output.",
     "",
-    `Repeated ${count}x: ${line}`,
+    `Detected: ${detail}`,
     "",
-    "Try switching models with `/models`, or use `/provider cloudflare` if your Worker route is ready.",
+    "Try `/provider cloudflare`, `/models`, or `/model @cf/moonshotai/kimi-k2.7-code`.",
   ].join("\n")
 }
 
@@ -127,6 +202,7 @@ async function chatWithFallbacks(state, messages, callbacks) {
       if (model !== originalModel) {
         response.content = `Switched model to ${model} because ${originalModel} returned empty.\n\n${response.content}`
         response.debug.fallbackUsed = true
+        state.saveConfig?.()
       }
       return response
     }
@@ -141,7 +217,12 @@ async function chatWithFallbacks(state, messages, callbacks) {
 }
 
 function fallbackModels(state) {
-  return String(state.config.fallbackModels || "")
+  const provider = state.provider?.provider || state.config.provider
+  const info = providerInfo(provider)
+  const source = provider === "openrouter"
+    ? state.config.fallbackModels || info.fallbackModels
+    : info.fallbackModels || state.config.fallbackModels
+  return (Array.isArray(source) ? source.join(",") : String(source || ""))
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
@@ -652,6 +733,10 @@ function summarizeTask(state, task) {
 function undo(state) {
   const backup = state.backups.pop()
   if (!backup) return showResult(state, "undo", { result: "nothing to undo" })
+  if (backup.type === "move") {
+    restoreMoveBackup(backup)
+    return showResult(state, "undo", { result: "restored move", from: backup.to, to: backup.from })
+  }
   if (!backup.existed) {
     state.registry.run(state, "delete_path", { path: backup.path, confirm: true })
     return showResult(state, "undo", { result: "removed created file", path: backup.path })
@@ -689,6 +774,10 @@ function rollback(state) {
 
 function restoreBackup(state, backup) {
   if (!backup) return
+  if (backup.type === "move") {
+    restoreMoveBackup(backup)
+    return
+  }
   if (!backup.existed) {
     rmSync(backup.path, { recursive: true, force: true })
     return
@@ -696,6 +785,17 @@ function restoreBackup(state, backup) {
   if (backup.content !== null) {
     mkdirSync(dirname(backup.path), { recursive: true })
     writeFileSync(backup.path, backup.content)
+  }
+}
+
+function restoreMoveBackup(backup) {
+  if (existsSync(backup.to)) {
+    mkdirSync(dirname(backup.from), { recursive: true })
+    renameSync(backup.to, backup.from)
+  }
+  if (backup.destinationExisted && backup.destinationContent !== null) {
+    mkdirSync(dirname(backup.to), { recursive: true })
+    writeFileSync(backup.to, backup.destinationContent)
   }
 }
 

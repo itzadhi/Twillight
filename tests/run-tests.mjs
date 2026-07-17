@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { loadConfig } from "../src/config/loader.mjs"
-import { apiKeyEnvName, apiKeysEnvName, credentialPath, hasSavedApiKey, readCredentials, savedApiKeyCount, saveApiKey, writeCredentials } from "../src/config/credentials.mjs"
+import { apiKeyEnvName, apiKeysEnvName, credentialPath, getApiKeys, hasSavedApiKey, readCredentials, savedApiKeyCount, saveApiKey, writeCredentials } from "../src/config/credentials.mjs"
 import { normalizePath } from "../src/security/path-policy.mjs"
 import { assertCommandAllowed } from "../src/security/command-policy.mjs"
 import { assertPermission } from "../src/security/permissions.mjs"
@@ -16,7 +16,7 @@ import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
 import { extractCodeBlocks } from "../src/ui/dashboard.mjs"
 import { closestCommand, isLikelyModelId, mouseScrollDelta } from "../src/cli/index.mjs"
-import { normalizeProviderContent } from "../src/providers/openrouter-provider.mjs"
+import { normalizeProviderContent, responseFromJson } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
 
@@ -34,6 +34,8 @@ const state = {
 }
 
 assert.equal(loadConfig(["--read-only"]).permissionMode, "read-only")
+assert.equal(loadConfig(["--model", "@cf/moonshotai/kimi-k2.7-code"]).provider, "cloudflare")
+assert.equal(loadConfig(["--model", "cohere/north-mini-code:free"]).provider, "openrouter")
 assert.equal(credentialPath(root).toLowerCase().includes("twillight"), true)
 writeCredentials(root, { OPENROUTER_API_KEY: "test-key" })
 assert.equal(readCredentials(root).OPENROUTER_API_KEY, "test-key")
@@ -46,6 +48,7 @@ assert.equal(readCredentials(root).OPENROUTER_API_KEY, "saved-key")
 assert.equal(readCredentials(root).OPENROUTER_API_KEYS.length, 1)
 saveApiKey(root, "openrouter", "saved-key-2", { append: true })
 assert.equal(savedApiKeyCount(root, "openrouter"), 2)
+assert.deepEqual(await getApiKeys(root, "openrouter", state.ui), ["saved-key", "saved-key-2"])
 saveApiKey(root, "groq", "groq-key")
 assert.equal(apiKeyEnvName("groq"), "GROQ_API_KEY")
 assert.equal(apiKeysEnvName("groq"), "GROQ_API_KEYS")
@@ -54,6 +57,7 @@ assert.equal(apiKeyEnvName("ollama"), "")
 assert.equal(normalizeProviderName("hf"), "huggingface")
 assert.equal(providerInfo("ollama").noAuth, true)
 assert.equal(providerInfo("cloudflare").noAuth, true)
+assert.equal(hasSavedApiKey(root, "cloudflare"), true)
 assert.equal(providerInfo("cloudflare").defaultModel, "@cf/moonshotai/kimi-k2.7-code")
 assert.equal(providerNames().includes("sambanova"), true)
 assert.equal(providerNames().includes("cloudflare"), true)
@@ -85,6 +89,9 @@ assert.throws(() => registry.run(state, "write_file", { path: "blocked.txt", con
 state.enabledTools = []
 writeFileSync(join(root, "b.txt"), "needle")
 assert.equal(registry.run(state, "search_text", { query: "needle" }).length, 1)
+registry.run(state, "write_file", { path: "move-source.txt", content: "move me" })
+registry.run(state, "move_path", { from: "move-source.txt", to: "move-target.txt" })
+assert.equal(registry.run(state, "read_file", { path: "move-target.txt" }).content, "move me")
 
 state.config.agentMode = "build"
 const workflow = planLocalWorkflow(state, "create a folder name sample in desktop")
@@ -133,12 +140,15 @@ assert.equal(mouseScrollDelta(Buffer.from([0x1b, 0x5b, 0x4d, 96, 40, 40])), 3)
 assert.equal(mouseScrollDelta(Buffer.from([0x1b, 0x5b, 0x4d, 97, 40, 40])), -3)
 assert.equal(isLikelyModelId("cohere/north-mini-code:free"), true)
 assert.equal(isLikelyModelId("@cf/moonshotai/kimi-k2.7-code"), true)
+assert.equal(isLikelyModelId("llama-3.1-8b-instant"), true)
 assert.equal(closestCommand("/dragom"), "/dragon")
 assert.equal(closestCommand("/cmds"), "/cmd")
 assert.equal(closestCommand("/provider"), "")
 assert.equal(polishAssistantText("Theusertypedwhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.").includes(". This"), true)
 assert.equal(polishAssistantText("Theuserasks\"yourmodelname\".ThesystemsaysweareTwillight.Ishouldanswer.").includes("The user asks"), true)
 assert.equal(polishAssistantText(Array(8).fill("Ortheywanttorun has a command to show help").join("\n")).includes("repeated itself"), true)
+assert.equal(polishAssistantText("Ortheywanttorunhasacommandtoshowhelpfortheassistant?".repeat(5)).includes("repeated itself"), true)
+assert.equal(polishAssistantText("I'masenior-gradecodingsystemwithawarmterminalpersonality.Icanhelpinspectfiles.Iunderstandyourproject.Icanusecommands.Ifollowplans.WhatIcanhelpwithincludesdebuggingandbuilds.").includes("I'm a senior-grade coding system"), true)
 assert.equal(isLikelyModelId("19"), false)
 const blocks = extractCodeBlocks("```js\nconsole.log('hi')\n```\ntext\n```py\nprint('yo')\n```")
 assert.equal(blocks.length, 2)
@@ -148,7 +158,8 @@ assert.equal(blocks[1].index, 2)
 assert.equal(normalizeProviderContent(" hello "), "hello")
 assert.equal(normalizeProviderContent([{ type: "text", text: "hello" }, { content: " world" }]), "hello world")
 assert.equal(normalizeProviderContent([{ type: "image_url", image_url: {} }]), "")
-assert.equal(normalizeProviderContent([{ reasoning: "fallback answer" }]), "")
+assert.equal(normalizeProviderContent({ response: { text: "nested worker answer" } }), "nested worker answer")
+assert.equal(responseFromJson({ result: { response: { content: "cf answer" } } }).content, "cf answer")
 
 rmSync(root, { recursive: true, force: true })
 console.log("tests ok")
