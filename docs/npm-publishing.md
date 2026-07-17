@@ -10,6 +10,7 @@ The CLI bins are:
 
 ```text
 twillight
+twilight
 twillight-mcp
 ```
 
@@ -50,6 +51,8 @@ npm publish --access public
 npm install -g twillight
 twillight
 ```
+
+If Windows does not recognize the command immediately, open a new terminal so the npm global PATH refreshes. The package also exposes `twilight` as an alias.
 
 ## Versioning
 

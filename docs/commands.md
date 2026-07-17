@@ -53,6 +53,7 @@ copy README.md to backup folder
 /skills
 /pet
 /dragon
+/doctor
 ```
 
 ## Permissions
@@ -98,6 +99,7 @@ copy README.md to backup folder
 /tool-preset safe
 /tool-preset edit
 /tool-preset code
+/tool-preset autonomous
 ```
 
 ## MCP

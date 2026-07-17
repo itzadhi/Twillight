@@ -33,6 +33,14 @@ cd C:\path\to\your\project
 twillight
 ```
 
+On Windows, open a new terminal after install so npm's global bin folder refreshes in PATH. The package also exposes `twilight` as an alias.
+
+```bat
+twilight
+```
+
+Inside Twillight, `/doctor` shows the npm global path, PATH status, and developer identity state.
+
 The current directory becomes the workspace. Twillight stores local runtime files in:
 
 ```text
@@ -56,6 +64,18 @@ You can also set keys manually:
 set OPENROUTER_API_KEY=your_key
 set GROQ_API_KEY=your_key
 set OPENAI_API_KEY=your_key
+```
+
+Developer identity for Adhi-only features:
+
+```bat
+set TWILLIGHT_CREATOR=itzadhi
+```
+
+or:
+
+```bat
+set TWILLIGHT_DEV=1
 ```
 
 ## Basic Use

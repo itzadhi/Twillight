@@ -10,6 +10,8 @@ export const defaults = {
   permissionMode: "standard",
   commandAllowlist: "npm test,npm run,node --check,git status,git diff",
   enabledTools: "",
+  developerMode: false,
+  developerId: "",
   uncensoredModel: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
   fallbackModels: "cohere/north-mini-code:free,qwen/qwen3-coder:free,meta-llama/llama-3.3-70b-instruct:free,google/gemma-4-26b-a4b-it:free,openai/gpt-oss-20b:free",
   pet: "sprite",

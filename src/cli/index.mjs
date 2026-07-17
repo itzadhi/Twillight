@@ -115,12 +115,26 @@ function createState(root, config, ui, session) {
     turns: 0,
     tokens: 0,
     reasoningTokens: 0,
-    isProjectDeveloper: isProjectDeveloperWorkspace(root),
+    isProjectDeveloper: isProjectDeveloperWorkspace(root, config),
   }
 }
 
-function isProjectDeveloperWorkspace(root) {
-  return existsSync(join(root, "src", "cli", "index.mjs")) && existsSync(join(root, "package.json"))
+function isProjectDeveloperWorkspace(root, config = {}) {
+  const id = String(config.developerId || "").trim().toLowerCase()
+  if (config.developerMode || ["itzadhi", "itz.adhi", "adhi"].includes(id)) return true
+  if (existsSync(join(root, "src", "cli", "index.mjs")) && existsSync(join(root, "package.json"))) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+      if (pkg.name === "twillight") return true
+    } catch {
+      return true
+    }
+  }
+  try {
+    return /github\.com[:/]itzadhi\/twillight(?:\.git)?/i.test(readFileSync(join(root, ".git", "config"), "utf8"))
+  } catch {
+    return false
+  }
 }
 
 async function interactive(state, store, session) {
@@ -481,6 +495,7 @@ async function handleInput(state, input) {
   if (input === "/full-access") return setPermission(state, "full-access")
   if (input.startsWith("/image ")) return attachImage(state, input.slice(7).trim())
   if (input === "/config" || input === "/settings") return configBox(state)
+  if (input === "/doctor") return doctorStatus(state)
   if (input === "/keys") return keysStatus(state)
   if (input === "/providers") return providersStatus(state)
   if (input === "/skills") return skillsStatus(state)
@@ -765,7 +780,8 @@ function helpText() {
     "- `/tools` select autonomous tool access",
     "- `/skills` show built-in Twillight skills",
     "- `/mcp` show Twillight MCP server command",
-    "- `/tool-preset all|read|safe|edit|code`",
+    "- `/doctor` diagnose global install, PATH, and developer identity",
+    "- `/tool-preset all|read|safe|edit|code|autonomous`",
     "- `/image C:\\path\\shot.png` attach image",
     "- `/copy 1` copy latest code block",
     "",
@@ -818,14 +834,43 @@ function petStatus(state) {
   state.ui.box("pet", [
     state.ui.row("name", pet.name),
     state.ui.row("mood", pet.mood),
-    state.ui.row("hint", state.isProjectDeveloper ? "/dragon unlocks the developer dragon" : "developer dragon is project-dev only"),
+    state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
+    state.ui.row("hint", state.isProjectDeveloper ? "/dragon unlocks the developer dragon" : "set TWILLIGHT_CREATOR=itzadhi or run inside itzadhi/twillight"),
   ])
   return true
 }
 
+function doctorStatus(state) {
+  const globalPrefix = runCapture("npm", ["prefix", "-g"])
+  const whereTwillight = process.platform === "win32" ? runCapture("where.exe", ["twillight"]) : runCapture("which", ["twillight"])
+  const prefix = globalPrefix.stdout.trim()
+  const pathText = process.env.Path || process.env.PATH || ""
+  const segments = pathText.split(process.platform === "win32" ? ";" : ":").map((item) => item.trim().toLowerCase())
+  const pathHasPrefix = prefix ? segments.includes(prefix.toLowerCase()) : false
+  state.ui.box("doctor", [
+    state.ui.row("bin", "twillight, twilight"),
+    state.ui.row("npm global", prefix || globalPrefix.error || "unknown"),
+    state.ui.row("on PATH", pathHasPrefix ? "yes" : "no or old terminal"),
+    state.ui.row("where", whereTwillight.stdout.trim().split(/\r?\n/)[0] || whereTwillight.error || "not found"),
+    state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
+    state.ui.row("dev env", "set TWILLIGHT_CREATOR=itzadhi"),
+    state.ui.row("fix", "open a new terminal after npm install -g twillight"),
+  ])
+  return true
+}
+
+function runCapture(command, args) {
+  const result = spawnSync(command, args, { encoding: "utf8" })
+  return {
+    code: result.status,
+    stdout: result.stdout || "",
+    error: result.error?.message || result.stderr || "",
+  }
+}
+
 function setPet(state, value) {
   if (value === "dragon" && !state.isProjectDeveloper) {
-    return showTwillight(state, "/dragon", "Developer dragon is locked to the Twillight project developer workspace.")
+    return showTwillight(state, "/dragon", "Developer dragon is locked. Run inside the itzadhi/twillight repo or set TWILLIGHT_CREATOR=itzadhi.")
   }
   state.config.pet = value
   return petStatus(state)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "twillight",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Twillight AI-powered development tool",
   "private": false,
   "type": "module",
@@ -15,6 +15,7 @@
   },
   "bin": {
     "twillight": "script/run-node.mjs",
+    "twilight": "script/run-node.mjs",
     "twillight-mcp": "src/mcp/server.mjs"
   },
   "files": [

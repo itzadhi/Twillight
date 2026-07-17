@@ -36,6 +36,8 @@ TWILLIGHT_WORKSPACE
 TWILLIGHT_PERMISSION
 TWILLIGHT_COMMAND_ALLOWLIST
 TWILLIGHT_ENABLED_TOOLS
+TWILLIGHT_DEV
+TWILLIGHT_CREATOR
 TWILLIGHT_UNCENSORED_MODEL
 TWILLIGHT_FALLBACK_MODELS
 TWILLIGHT_MAX_TOKENS
@@ -67,6 +69,20 @@ OPENAI_API_KEYS
 Multiple keys can be separated by commas, semicolons, or new lines.
 
 Ollama is local and does not need an API key.
+
+## Developer Identity
+
+The developer dragon unlocks automatically inside the `itzadhi/twillight` repository. It can also be enabled explicitly:
+
+```cmd
+set TWILLIGHT_CREATOR=itzadhi
+```
+
+or:
+
+```cmd
+set TWILLIGHT_DEV=1
+```
 
 ## Defaults
 

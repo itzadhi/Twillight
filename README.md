@@ -123,6 +123,8 @@ cd C:\path\to\project
 twillight
 ```
 
+On Windows, open a new terminal after global install so `%APPDATA%\npm` refreshes in PATH. The package also installs the `twilight` alias, and `/doctor` diagnoses the detected npm global path from inside Twillight.
+
 The folder you launch `twillight` from becomes the active workspace sandbox. Sessions, tasks, memory, and logs are stored under that project’s `.ai` folder.
 
 ## Commands
@@ -164,6 +166,7 @@ The folder you launch `twillight` from becomes the active workspace sandbox. Ses
 /skills
 /pet
 /dragon
+/doctor
 /clear
 /exit
 ```

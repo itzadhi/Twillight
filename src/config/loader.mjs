@@ -15,6 +15,8 @@ export function loadConfig(argv) {
     permissionMode: process.env.TWILLIGHT_PERMISSION,
     commandAllowlist: process.env.TWILLIGHT_COMMAND_ALLOWLIST,
     enabledTools: process.env.TWILLIGHT_ENABLED_TOOLS,
+    developerMode: bool(process.env.TWILLIGHT_DEV),
+    developerId: process.env.TWILLIGHT_CREATOR,
     uncensoredModel: process.env.TWILLIGHT_UNCENSORED_MODEL,
     fallbackModels: process.env.TWILLIGHT_FALLBACK_MODELS,
     maxTokens: number(process.env.TWILLIGHT_MAX_TOKENS),
