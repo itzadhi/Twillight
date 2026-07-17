@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
-import { join } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 
 const DEFAULT_REGISTRY = "https://registry.npmjs.org"
+const require = createRequire(import.meta.url)
 
 export function packageMetadata(appRoot) {
   try {
@@ -59,19 +61,51 @@ export function rememberUpdateInstall(root, info) {
 }
 
 export function installGlobalUpdate(info) {
-  const command = npmCommand()
-  const args = ["install", "-g", `${info.name || "twillight"}@latest`]
-  const result = spawnSync(command, args, {
+  const spec = npmCommandSpec(["install", "-g", `${info.name || "twillight"}@latest`])
+  const result = spawnSync(spec.command, spec.args, {
     encoding: "utf8",
     windowsHide: true,
     maxBuffer: 1024 * 1024 * 5,
   })
   return {
-    command: `${command} ${args.join(" ")}`,
-    code: result.status ?? 1,
+    command: spec.display,
+    code: result.status ?? (result.error ? 1 : 0),
     stdout: result.stdout || "",
     stderr: result.stderr || result.error?.message || "",
   }
+}
+
+export function npmCommandSpec(args = []) {
+  const cleanArgs = args.map((arg) => String(arg))
+  const cli = npmCliPath()
+  if (cli) {
+    return {
+      command: process.execPath,
+      args: [cli, ...cleanArgs],
+      display: `npm ${cleanArgs.join(" ")}`.trim(),
+    }
+  }
+  if (process.platform === "win32") {
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", "npm", ...cleanArgs],
+      display: `npm ${cleanArgs.join(" ")}`.trim(),
+    }
+  }
+  return {
+    command: "npm",
+    args: cleanArgs,
+    display: `npm ${cleanArgs.join(" ")}`.trim(),
+  }
+}
+
+export function npmCliPath() {
+  const candidates = [
+    process.env.npm_execpath,
+    safeResolve("npm/bin/npm-cli.js"),
+    join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+  ].filter(Boolean)
+  return candidates.find((file) => existsSync(file)) || ""
 }
 
 function updateInfo(pkg, latest, extra = {}) {
@@ -82,7 +116,7 @@ function updateInfo(pkg, latest, extra = {}) {
     name: pkg.name,
     current: pkg.version,
     latest,
-    command: `${npmCommand()} install -g ${pkg.name}@latest`,
+    command: npmCommandSpec(["install", "-g", `${pkg.name}@latest`]).display,
   }
 }
 
@@ -118,8 +152,12 @@ function updateCachePath(root) {
   return join(root, ".ai", "update.json")
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm"
+function safeResolve(id) {
+  try {
+    return require.resolve(id)
+  } catch {
+    return ""
+  }
 }
 
 function semverParts(value) {

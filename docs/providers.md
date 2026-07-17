@@ -65,8 +65,8 @@ Private gateways are supported too. If your Worker intentionally requires a shar
 or set:
 
 ```cmd
-set TWILLIGHT_WORKER_TOKEN=your_gateway_token
-set TWILLIGHT_CLOUDFLARE_GATEWAY_KEY=your_gateway_token
+set TWILLIGHT_WORKER_TOKEN=<your_gateway_token>
+set TWILLIGHT_CLOUDFLARE_GATEWAY_KEY=<your_gateway_token>
 ```
 
 Both names are treated as the same Cloudflare gateway token. Twillight redacts them in logs and sends the token as `Authorization: Bearer`, `X-Twillight-Gateway-Key`, and `X-API-Key`.

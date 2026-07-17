@@ -19,7 +19,7 @@ import { detectOpenTui } from "../ui/opentui-adapter.mjs"
 import { summarizeOpenTuiEnv } from "../ui/opentui-env.mjs"
 import { renderComponentShowcase } from "../ui/virtual-components.mjs"
 import { bg, createRenderer, rgb, theme, titleCase, truncate } from "../utils/terminal.mjs"
-import { checkForUpdate, installGlobalUpdate, rememberUpdateInstall, rememberUpdateSkip } from "../update/checker.mjs"
+import { checkForUpdate, installGlobalUpdate, npmCommandSpec, rememberUpdateInstall, rememberUpdateSkip } from "../update/checker.mjs"
 
 export async function main(argv = process.argv.slice(2)) {
   const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
@@ -706,9 +706,12 @@ async function handleInput(state, input) {
   if (input === "/update" || input === "/update-check" || input === "/upgrade" || input === "/updates") return updateStatus(state, true)
   if (input === "/update-install") return updateInstallCommand(state)
   if (input === "/keys") return keysStatus(state)
-  if (input === "/providers list" || input === "/providers status") return providersStatus(state)
-  if (input === "/providers") return chooseProvider(state)
-  if (input.startsWith("/providers ")) return setProvider(state, input.slice(11).trim())
+  if (input === "/providers" || input === "/providers list" || input === "/providers status" || input === "/providers catalog") return providersStatus(state)
+  if (input.startsWith("/providers ")) {
+    const providerValue = input.slice(11).trim()
+    if (["list", "status", "catalog"].includes(providerValue.toLowerCase())) return providersStatus(state)
+    return setProvider(state, providerValue)
+  }
   if (input === "/skills") return skillsStatus(state)
   if (input === "/pet") return petStatus(state)
   if (input.startsWith("/pet ")) return setPet(state, input.slice(5).trim())
@@ -717,7 +720,7 @@ async function handleInput(state, input) {
   if (input === "/key" || input.startsWith("/key ")) return saveKeyPrompt(state, input.slice(4).trim(), false)
   if (input.startsWith("/key-add ")) return saveKeyPrompt(state, input.slice(9).trim(), true)
   if (input === "/provider") return chooseProvider(state)
-  if (input === "/provider list" || input === "/provider status") return providersStatus(state)
+  if (input === "/provider list" || input === "/provider status" || input === "/provider catalog") return providersStatus(state)
   if (input.startsWith("/provider ")) return setProvider(state, input.slice(10).trim())
   if (input === "/openrouter") return setProvider(state, "openrouter")
   if (input === "/cloudflare" || input === "/workers-ai" || input === "/worker" || input === "/workers" || input === "/cf") return setProvider(state, "cloudflare")
@@ -1277,20 +1280,25 @@ function petStatus(state) {
 }
 
 function doctorStatus(state) {
-  const globalPrefix = runCapture("npm", ["prefix", "-g"])
+  const globalPrefix = runCapture(npmCommandSpec(["prefix", "-g"]))
   const whereTwillight = process.platform === "win32" ? runCapture("where.exe", ["twillight"]) : runCapture("which", ["twillight"])
+  const whereTwilight = process.platform === "win32" ? runCapture("where.exe", ["twilight"]) : runCapture("which", ["twilight"])
   const prefix = globalPrefix.stdout.trim()
   const pathText = process.env.Path || process.env.PATH || ""
-  const segments = pathText.split(process.platform === "win32" ? ";" : ":").map((item) => item.trim().toLowerCase())
-  const pathHasPrefix = prefix ? segments.includes(prefix.toLowerCase()) : false
+  const segments = pathText.split(process.platform === "win32" ? ";" : ":").map(normalizePathSegment).filter(Boolean)
+  const pathHasPrefix = prefix ? segments.includes(normalizePathSegment(prefix)) : false
+  const twillightBin = firstLine(whereTwillight.stdout) || whereTwillight.error || "not found"
+  const twilightBin = firstLine(whereTwilight.stdout) || whereTwilight.error || "not found"
   state.ui.box("doctor", [
     state.ui.row("bin", "twillight, twilight"),
+    state.ui.row("npm", globalPrefix.command),
     state.ui.row("npm global", prefix || globalPrefix.error || "unknown"),
     state.ui.row("on PATH", pathHasPrefix ? "yes" : "no or old terminal"),
-    state.ui.row("where", whereTwillight.stdout.trim().split(/\r?\n/)[0] || whereTwillight.error || "not found"),
+    state.ui.row("twillight", twillightBin),
+    state.ui.row("twilight", twilightBin),
     state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
     state.ui.row("dev env", "set TWILLIGHT_CREATOR=itzadhi"),
-    state.ui.row("fix", "open a new terminal after npm install -g twillight"),
+    state.ui.row("fix", pathHasPrefix ? "ok" : "open a new terminal or add npm global to PATH"),
   ])
   return true
 }
@@ -1344,13 +1352,29 @@ async function updateInstallCommand(state) {
   return installUpdate(state, info)
 }
 
-function runCapture(command, args) {
-  const result = spawnSync(command, args, { encoding: "utf8" })
+function runCapture(command, args = []) {
+  const spec = typeof command === "object"
+    ? { command: command.command, args: command.args || [], display: command.display || command.command }
+    : { command, args, display: `${command} ${(args || []).join(" ")}`.trim() }
+  const result = spawnSync(spec.command, spec.args, { encoding: "utf8", windowsHide: true, maxBuffer: 1024 * 1024 })
   return {
-    code: result.status,
+    command: spec.display,
+    code: result.status ?? (result.error ? 1 : 0),
     stdout: result.stdout || "",
     error: result.error?.message || result.stderr || "",
   }
+}
+
+function firstLine(value) {
+  return String(value || "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0] || ""
+}
+
+function normalizePathSegment(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/[\\/]+$/g, "")
+    .toLowerCase()
 }
 
 function setPet(state, value) {

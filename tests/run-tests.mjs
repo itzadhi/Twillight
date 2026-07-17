@@ -19,7 +19,7 @@ import { closestCommand, isLikelyModelId, mouseScrollDelta, parseProviderRequest
 import { cloudflareEndpoint, isCloudflareChallengeText, normalizeProviderContent, providerHttpError, responseFromJson } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
-import { isNewerVersion, packageMetadata } from "../src/update/checker.mjs"
+import { isNewerVersion, npmCommandSpec, npmCliPath, packageMetadata } from "../src/update/checker.mjs"
 
 const root = mkdtempSync(join(tmpdir(), "twillight-"))
 process.env.TWILLIGHT_CONFIG_DIR = join(root, "config")
@@ -41,6 +41,11 @@ assert.equal(loadConfig([]).updateCheck, true)
 assert.equal(isNewerVersion("1.1.10", "1.1.9"), true)
 assert.equal(isNewerVersion("1.1.9", "1.1.10"), false)
 assert.equal(packageMetadata(process.cwd()).name, "twillight")
+const npmInstallSpec = npmCommandSpec(["install", "-g", "twillight@latest"])
+assert.equal(npmInstallSpec.display, "npm install -g twillight@latest")
+assert.equal(npmInstallSpec.args.includes("install"), true)
+assert.notEqual(npmInstallSpec.command, "")
+if (npmCliPath()) assert.equal(npmInstallSpec.command, process.execPath)
 const previousProviderEnv = process.env.TWILLIGHT_PROVIDER
 const previousModelEnv = process.env.TWILLIGHT_MODEL
 const previousUpdateEnv = process.env.TWILLIGHT_UPDATE_CHECK
