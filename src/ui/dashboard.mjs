@@ -145,16 +145,17 @@ function fixedConversation(state, input, answer, thinking, width, height) {
     "",
     ...thoughtBlock(thinking),
     "",
-    ...replyBlock(answer, width),
-    "",
-    footerLine(state, width),
   ]
+  if (thinking || String(answer || "").trim()) {
+    content.push(...replyBlock(answer, width), "")
+  }
+  content.push(footerLine(state, width))
   const scrollMax = Math.max(0, content.length - bodyHeight)
   state.scrollOffset = Math.min(Math.max(0, state.scrollOffset || 0), scrollMax)
   const start = scrollMax ? scrollMax - state.scrollOffset : 0
   const clipped = content.slice(start, start + bodyHeight)
-  if (scrollMax && start > 0) clipped[0] = scrollNotice(start)
-  if (scrollMax && start + bodyHeight < content.length) clipped[bodyHeight - 1] = scrollNotice(content.length - start - bodyHeight)
+  if (scrollMax && start > 0) clipped[0] = scrollNotice(start, "earlier")
+  if (scrollMax && start + bodyHeight < content.length) clipped[bodyHeight - 1] = scrollNotice(content.length - start - bodyHeight, "later")
   while (clipped.length < bodyHeight) clipped.push("")
   const scroll = scrollColumn(bodyHeight, scrollMax, state.scrollOffset || 0)
   return [
@@ -339,8 +340,10 @@ function blankRail(width) {
   return bg(theme.rail, " ".repeat(Math.max(0, width)))
 }
 
-function scrollNotice(count) {
-  return `${rgb(theme.muted, `… ${count} hidden lines`)} ${rgb(theme.border, "inside viewport")}`
+function scrollNotice(count, direction = "hidden") {
+  const arrow = direction === "earlier" ? "↑" : direction === "later" ? "↓" : "…"
+  const hint = direction === "earlier" ? "scroll up" : direction === "later" ? "scroll down" : "scroll"
+  return `${rgb(theme.muted, `${arrow} ${count} ${direction} lines`)} ${rgb(theme.border, hint)}`
 }
 
 function scrollColumn(height, max, offset) {

@@ -175,6 +175,10 @@ async function interactive(state, store, session) {
     const input = await readPromptInput(state).catch(() => "")
     const nextInput = ["/cmd", "/cmds", "/commands"].includes(input) ? await openCommandPalette(state) : input
     if (nextInput === null) continue
+    if (!String(nextInput || "").trim()) {
+      refreshActiveView(state)
+      continue
+    }
     if (!enqueueInput(state, store, session, nextInput)) break
     if (requiresExclusiveInput(nextInput)) {
       while ((state.queueScheduled || state.processing) && !state.exiting) await sleep(50)
@@ -1105,6 +1109,18 @@ function refreshActiveView(state) {
 
 function friendlyError(error) {
   const raw = String(error?.message || error || "Unknown error")
+  if (/cloudflare.*browser challenge|cli cannot solve the javascript challenge|gateway\/waf config|<title>\s*Just a moment|cf_chl_|challenge-platform|enable javascript and cookies/i.test(raw)) {
+    return [
+      "Cloudflare is challenging the Worker URL, so Twillight is receiving an HTML page instead of AI JSON.",
+      "",
+      "Fix one of these:",
+      "- In Cloudflare, skip Managed Challenge/Bot Fight/WAF challenge for the Worker API route.",
+      "- Use an unchallenged workers.dev/API URL with `/gateway https://your-worker.workers.dev`.",
+      "- If the Worker is private, save its token with `/key cloudflare`.",
+      "",
+      "Details: Cloudflare browser challenge blocked the CLI request.",
+    ].join("\n")
+  }
   if (/429|too many requests/i.test(raw)) {
     return [
       "Provider is rate-limiting this model right now.",
@@ -1117,15 +1133,13 @@ function friendlyError(error) {
       `Details: ${raw}`,
     ].join("\n")
   }
-  if (/cloudflare.*browser challenge|cli cannot solve the javascript challenge|gateway\/waf config/i.test(raw)) {
+  if (/<!doctype html|<html[\s>]/i.test(raw)) {
     return [
-      "Cloudflare is challenging the Worker URL, so Twillight is receiving HTML instead of AI JSON.",
+      "The provider returned an HTML page instead of AI JSON.",
       "",
-      "Fix one of these:",
-      "- In Cloudflare, skip Managed Challenge/Bot Fight/WAF challenge for the Worker API route.",
-      "- Or use an unchallenged workers.dev/API URL with `/gateway https://your-worker.workers.dev`.",
+      "This usually means the endpoint URL is a web page, login page, or protected gateway instead of a clean API route.",
       "",
-      `Details: ${raw}`,
+      "Open `/provider`, `/gateway`, or `/models` after fixing the provider URL.",
     ].join("\n")
   }
   if (/unknown command/i.test(raw)) return raw

@@ -156,8 +156,8 @@ function parseFolderAndPythonFileRequest(state, text) {
   const folder = parseFolderRequest(state, text)
   if (!folder) return []
   const fileMatch = text.match(/\b(?:into|in|under|inside|as)\s+(?:one\s+)?([A-Za-z0-9_. -]+\.py)\b/i)
-  if (!fileMatch) return []
-  const fileName = fileMatch[1].trim()
+  if (!fileMatch && !/\bpython\s+file\b/i.test(text)) return []
+  const fileName = fileMatch?.[1]?.trim() || "basis.py"
   const target = pathWin32.join(folder, fileName)
   const content = pythonContentFromPrompt(text)
   return [
@@ -168,7 +168,7 @@ function parseFolderAndPythonFileRequest(state, text) {
 
 function pythonContentFromPrompt(text) {
   const lower = text.toLowerCase()
-  if (lower.includes("filehandling") || lower.includes("file handling")) {
+  if (lower.includes("filehandling") || lower.includes("file handling") || /\bfile\b.*\boperation/.test(lower) || /\bevery\w*\s+operation/.test(lower)) {
     return [
       '"""Class 12 CBSE Python file handling practice functions."""',
       "",
@@ -247,11 +247,11 @@ function isOutsideWorkspace(state, step) {
 }
 
 function parseFolderRequest(state, text) {
-  const inThenName = text.match(/\bcreate\s+(?:a\s+)?(?:folder|directory)\s+(?:in|inside|at|on)\s+(.+?)\s+(?:name|named|called)\s+([^\s"'`]+)\b/i)
+  const inThenName = text.match(/\b(?:create|make|add|new)\s+(?:a\s+)?(?:folder|directory)\s+(?:in|inside|at|on)\s+(.+?)\s+(?:name|named|called)\s+([^\s"'`]+)\b/i)
   if (inThenName) return joinLocation(state, inThenName[1], inThenName[2])
-  const nameThenIn = text.match(/\bcreate\s+(?:a\s+)?(?:folder|directory)\s+(?:name|named|called)?\s*([^\s"'`]+)\s+(?:in|inside|at|on)\s+(.+?)\s*$/i)
+  const nameThenIn = text.match(/\b(?:create|make|add|new)\s+(?:a\s+)?(?:folder|directory)\s+(?:name|named|called)?\s*([^\s"'`]+)\s+(?:in|inside|at|on)\s+(.+?)\s*$/i)
   if (nameThenIn) return joinLocation(state, nameThenIn[2], nameThenIn[1])
-  const simpleName = text.match(/\bcreate\s+(?:a\s+)?(?:folder|directory)\s+(?:name|named|called)\s+([^\s"'`]+)\b/i)
+  const simpleName = text.match(/\b(?:create|make|add|new)\s+(?:a\s+)?(?:folder|directory)\s+(?:name|named|called)\s+([^\s"'`]+)\b/i)
   if (simpleName) return simpleName[1]
   return ""
 }

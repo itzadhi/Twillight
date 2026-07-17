@@ -10,7 +10,7 @@ import { assertPermission } from "../src/security/permissions.mjs"
 import { createRegistry } from "../src/tools/registry.mjs"
 import { createRenderer } from "../src/utils/terminal.mjs"
 import { createTaskStore, needsApproval, planLocalWorkflow } from "../src/agent/workflow.mjs"
-import { polishAssistantText } from "../src/agent/agent-loop.mjs"
+import { polishAssistantText, sanitizeAssistantText } from "../src/agent/agent-loop.mjs"
 import { canUseNativeRenderer, detectOpenTui } from "../src/ui/opentui-adapter.mjs"
 import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
@@ -36,6 +36,16 @@ const state = {
 assert.equal(loadConfig(["--read-only"]).permissionMode, "read-only")
 assert.equal(loadConfig(["--model", "@cf/moonshotai/kimi-k2.7-code"]).provider, "cloudflare")
 assert.equal(loadConfig(["--model", "cohere/north-mini-code:free"]).provider, "openrouter")
+const previousProviderEnv = process.env.TWILLIGHT_PROVIDER
+const previousModelEnv = process.env.TWILLIGHT_MODEL
+process.env.TWILLIGHT_PROVIDER = "cloudflare"
+delete process.env.TWILLIGHT_MODEL
+assert.equal(loadConfig([]).provider, "cloudflare")
+assert.equal(loadConfig([]).model, "@cf/moonshotai/kimi-k2.7-code")
+if (previousProviderEnv === undefined) delete process.env.TWILLIGHT_PROVIDER
+else process.env.TWILLIGHT_PROVIDER = previousProviderEnv
+if (previousModelEnv === undefined) delete process.env.TWILLIGHT_MODEL
+else process.env.TWILLIGHT_MODEL = previousModelEnv
 assert.equal(credentialPath(root).toLowerCase().includes("twillight"), true)
 writeCredentials(root, { OPENROUTER_API_KEY: "test-key" })
 assert.equal(readCredentials(root).OPENROUTER_API_KEY, "test-key")
@@ -62,6 +72,9 @@ assert.equal(apiKeyEnvName("cloudflare"), "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY")
 assert.deepEqual(await getApiKeys(root, "cloudflare", state.ui), [""])
 saveApiKey(root, "cloudflare", "cf-gateway-key")
 assert.deepEqual(await getApiKeys(root, "cloudflare", state.ui), ["cf-gateway-key"])
+process.env.TWILLIGHT_WORKER_TOKEN = "cf-worker-token"
+assert.deepEqual(await getApiKeys(root, "cloudflare", state.ui), ["cf-worker-token"])
+delete process.env.TWILLIGHT_WORKER_TOKEN
 assert.equal(savedApiKeyCount(root, "cloudflare"), 1)
 assert.equal(providerInfo("cloudflare").defaultModel, "@cf/moonshotai/kimi-k2.7-code")
 assert.equal(providerInfo("cloudflare").fallbackModels.includes("@cf/zai-org/glm-4.7-flash"), true)
@@ -110,6 +123,11 @@ assert.equal(combinedWorkflow.steps[0].tool, "make_directory")
 assert.equal(combinedWorkflow.steps[1].tool, "write_file")
 assert.equal(combinedWorkflow.steps[1].input.path.endsWith("basis.py"), true)
 assert.equal(combinedWorkflow.steps[1].input.content.includes("count_lines"), true)
+const casualFolderWorkflow = planLocalWorkflow(state, "make a folder name t34 and make a python file with everym operation")
+assert.equal(casualFolderWorkflow.steps.length, 2)
+assert.equal(casualFolderWorkflow.steps[0].tool, "make_directory")
+assert.equal(casualFolderWorkflow.steps[1].tool, "write_file")
+assert.equal(casualFolderWorkflow.steps[1].input.path.endsWith("basis.py"), true)
 const directPythonWorkflow = planLocalWorkflow(state, "hello create a python file name basis.py and add all file handling function of text file in it and then use select system in it and then save")
 assert.equal(directPythonWorkflow.steps.length, 1)
 assert.equal(directPythonWorkflow.steps[0].tool, "write_file")
@@ -157,6 +175,7 @@ assert.equal(polishAssistantText("Theuserasks\"yourmodelname\".Thesystemsayswear
 assert.equal(polishAssistantText(Array(8).fill("Ortheywanttorun has a command to show help").join("\n")).includes("repeated itself"), true)
 assert.equal(polishAssistantText("Ortheywanttorunhasacommandtoshowhelpfortheassistant?".repeat(5)).includes("repeated itself"), true)
 assert.equal(polishAssistantText("I'masenior-gradecodingsystemwithawarmterminalpersonality.Icanhelpinspectfiles.Iunderstandyourproject.Icanusecommands.Ifollowplans.WhatIcanhelpwithincludesdebuggingandbuilds.").includes("I'm a senior-grade coding system"), true)
+assert.equal(sanitizeAssistantText("I'll do it.<|tool_calls_section_begin|><|tool_call_begin|>functions.execute_command<|tool_call_argument_begin|>{\"command\":\"mkdir V:\\\\t34\"}<|tool_call_end|><|tool_calls_section_end|>").includes("Detected draft command"), true)
 assert.equal(isLikelyModelId("19"), false)
 const blocks = extractCodeBlocks("```js\nconsole.log('hi')\n```\ntext\n```py\nprint('yo')\n```")
 assert.equal(blocks.length, 2)

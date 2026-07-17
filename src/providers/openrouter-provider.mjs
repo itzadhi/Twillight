@@ -94,7 +94,7 @@ async function cloudflareModels(url, config, info, key = "") {
       headers: { Accept: "application/json", ...authHeaders("cloudflare", key), ...providerHeaders("cloudflare") },
       signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
     })
-    const data = await readProviderJson(response, "", { provider: "cloudflare", endpoint: url })
+    const data = await readProviderJson(response, key, { provider: "cloudflare", endpoint: url })
     const models = normalizeModels("cloudflare", data)
     return models.length ? models : fallbackModelRows(info, "catalog")
   } catch (error) {
@@ -123,7 +123,7 @@ async function cloudflareChat(url, config, messages, key = "") {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
   })
-  const data = await readProviderJson(response, "", { provider: "cloudflare", endpoint: url, model: config.model })
+  const data = await readProviderJson(response, key, { provider: "cloudflare", endpoint: url, model: config.model })
   const jsonError = providerJsonError(data, { provider: "cloudflare", model: config.model })
   if (jsonError) throw jsonError
   return responseFromJson(data, { source: "cloudflare-worker" })

@@ -35,7 +35,7 @@ export async function askModel(state, task) {
   })
   state.lastProviderDebug = response.debug || {}
   state.ui.debug?.(`provider response provider=${state.provider.provider} model=${state.config.model} empty=${!String(response.content || "").trim()} debug=${JSON.stringify(state.lastProviderDebug).slice(0, 600)}`)
-  const content = polishAssistantText(String(response.content || "").trim() || emptyResponseMessage(state))
+  const content = polishAssistantText(sanitizeAssistantText(String(response.content || "").trim()) || emptyResponseMessage(state))
   state.messages.push({ role: "user", content: task }, { role: "assistant", content })
   state.pendingImage = ""
   state.tokens += Number(response.usage.total_tokens ?? response.usage.totalTokens ?? 0)
@@ -115,6 +115,36 @@ export function polishAssistantText(value) {
     ].join("\n")
   }
   return text
+}
+
+export function sanitizeAssistantText(value) {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  if (!hasModelToolMarkup(text)) return text
+  const command = extractToolCommand(text)
+  const plainLead = text.split(/<\|tool_calls_section_begin\|>|<tool_calls_section_begin>|<tool_call/i)[0].trim()
+  return [
+    plainLead || "The model tried to emit a raw tool call instead of a normal answer.",
+    "",
+    "I hid the tool-call markup so it does not break the terminal UI.",
+    command ? `Detected draft command: \`${command}\`` : "Twillight will run matching local actions through its own workflow.",
+  ].join("\n").trim()
+}
+
+function hasModelToolMarkup(value) {
+  return /<\|tool_calls_section_begin\|>|<\|tool_call_begin\|>|<\|tool_call_argument_begin\|>|<tool_calls_section|<tool_call/i.test(String(value || ""))
+}
+
+function extractToolCommand(value) {
+  const text = String(value || "")
+  const match = text.match(/<\|tool_call_argument_begin\|>([\s\S]*?)(?:<\|tool_call_end\|>|<\|tool_calls_section_end\|>|$)/)
+  if (!match) return ""
+  try {
+    const data = JSON.parse(match[1].trim())
+    return typeof data.command === "string" ? data.command : ""
+  } catch {
+    return ""
+  }
 }
 
 function repeatedNoiseSummary(value) {
@@ -263,6 +293,7 @@ function systemPrompt(state) {
     `Enabled tools: ${state.enabledTools?.length ? state.enabledTools.join(", ") : "all available Twillight tools"}.`,
     `Project memory: ${JSON.stringify(state.projectMemory || {})}`,
     "When the user asks for local filesystem or command actions, assume Twillight can use local tools through its autonomous workflow. Do not say you cannot access the machine unless the workflow is blocked by permissions or missing information.",
+    "Never output raw tool-call sentinel markup such as <|tool_call_begin|>, <|tool_calls_section_begin|>, XML tool tags, or JSON tool wrappers. Twillight executes tools outside the model; answer in plain text.",
     "For coding tasks, follow this full-scale pipeline internally: clarify intent from context, inspect relevant files, identify constraints, choose the smallest robust design, apply changes, validate with syntax/tests/smoke checks, track changed files, and report what changed plus any risk.",
     "Prefer autonomous action in build mode. Prefer careful explanation and no edits in plan mode. Respect permission mode.",
     "Be concise in chat, but be complete in work. Avoid filler, disclaimers, and generic lists. Ask a question only when making a reasonable assumption would be risky.",
@@ -690,10 +721,19 @@ function useModel(state, value) {
   if (!selected) throw new Error("Run /models first, then choose a listed number with /use <number>.")
   state.previousModel = state.config.model
   state.config.model = selected.id
+  const inferredProvider = providerFromModel(selected.id)
+  if (inferredProvider) state.config.provider = inferredProvider
   state.provider = state.createProvider()
   state.saveConfig?.()
-  showResult(state, "model", { selected: selected.id, saved: ".ai\\config.yaml" })
+  showResult(state, "model", { selected: selected.id, provider: providerInfo(state.config.provider).title, saved: ".ai\\config.yaml" })
   return true
+}
+
+function providerFromModel(model) {
+  const value = String(model || "").trim().toLowerCase()
+  if (value.startsWith("@cf/")) return "cloudflare"
+  if (value.endsWith(":free")) return "openrouter"
+  return ""
 }
 
 function writeLike(state, value, append) {

@@ -41,6 +41,7 @@ TWILLIGHT_CREATOR
 TWILLIGHT_UNCENSORED_MODEL
 TWILLIGHT_FALLBACK_MODELS
 TWILLIGHT_CLOUDFLARE_GATEWAY_URL
+TWILLIGHT_WORKER_TOKEN
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEY
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEYS
 TWILLIGHT_MAX_TOKENS
@@ -69,13 +70,14 @@ OPENAI_API_KEY
 OPENAI_API_KEYS
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEY
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEYS
+TWILLIGHT_WORKER_TOKEN
 ```
 
 Multiple keys can be separated by commas, semicolons, or new lines.
 
 Ollama is local and does not need an API key.
 
-Cloudflare Workers AI uses `TWILLIGHT_CLOUDFLARE_GATEWAY_URL` and does not require a client key when your Worker gateway is public. If your Worker is private, use `/key cloudflare` or `TWILLIGHT_CLOUDFLARE_GATEWAY_KEY`.
+Cloudflare Workers AI uses `TWILLIGHT_CLOUDFLARE_GATEWAY_URL` and does not require a client key when your Worker gateway is public. If your Worker is private, use `/key cloudflare`, `TWILLIGHT_CLOUDFLARE_GATEWAY_KEY`, or the shorter `TWILLIGHT_WORKER_TOKEN` alias.
 
 You can also set it inside Twillight and save it to the project:
 

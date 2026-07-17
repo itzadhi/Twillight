@@ -100,7 +100,14 @@ If your Worker is private and returns `401 Unauthorized`, save the gateway token
 /key cloudflare
 ```
 
-Twillight sends that token as `Authorization: Bearer`, `X-Twillight-Gateway-Key`, and `X-API-Key` to your Worker.
+Twillight sends that token as `Authorization: Bearer`, `X-Twillight-Gateway-Key`, and `X-API-Key` to your Worker. Environment aliases also work:
+
+```bat
+set TWILLIGHT_WORKER_TOKEN=your_gateway_token
+set TWILLIGHT_CLOUDFLARE_GATEWAY_KEY=your_gateway_token
+```
+
+If Cloudflare returns a browser challenge page, Twillight now hides the HTML dump and shows a short gateway/WAF fix message instead.
 
 Set your key locally:
 

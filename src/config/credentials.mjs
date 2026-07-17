@@ -133,7 +133,14 @@ function normalizeCredentials(credentials) {
 }
 
 function credentialAliases(canonical) {
-  if (canonical === "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY") return ["TWILLIGHT_CLOUDFLARE_GATEWAY_KEY", "TWILLIGHT_CLOUDFLARE_KEY", "CLOUDFLARE_GATEWAY_KEY", "cloudflareGatewayKey"]
+  if (canonical === "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY") return [
+    "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY",
+    "TWILLIGHT_CLOUDFLARE_KEY",
+    "TWILLIGHT_WORKER_TOKEN",
+    "CLOUDFLARE_GATEWAY_KEY",
+    "CLOUDFLARE_WORKER_TOKEN",
+    "cloudflareGatewayKey",
+  ]
   if (canonical === "OPENAI_API_KEY") return ["OPENAI_API_KEY", "OPENAI_KEY", "openaiApiKey", "openai_api_key"]
   if (canonical === "GROQ_API_KEY") return ["GROQ_API_KEY", "GROQ_KEY", "GROQ_TOKEN", "GROQ_API_TOKEN", "groqApiKey", "groq_api_key"]
   if (canonical === "HUGGINGFACE_API_KEY") return ["HUGGINGFACE_API_KEY", "HF_TOKEN", "HF_API_KEY", "HUGGINGFACE_TOKEN", "huggingfaceApiKey"]

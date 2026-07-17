@@ -10,6 +10,7 @@ Twillight is a Node 20 terminal AI coding client. It runs in the folder you laun
   - OpenRouter
   - Groq
   - OpenAI
+  - Cloudflare Worker gateway token, only when your Worker is private
 
 ## Local Development
 
@@ -64,6 +65,7 @@ You can also set keys manually:
 set OPENROUTER_API_KEY=your_key
 set GROQ_API_KEY=your_key
 set OPENAI_API_KEY=your_key
+set TWILLIGHT_WORKER_TOKEN=your_cloudflare_worker_token
 ```
 
 Developer identity for Adhi-only features:

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { defaults } from "./defaults.mjs"
+import { providerInfo } from "../providers/catalog.mjs"
 
 export function loadConfig(argv) {
   const projectConfig = readSimpleYaml(join(process.cwd(), ".ai", "config.yaml"))
@@ -25,11 +26,24 @@ export function loadConfig(argv) {
     queueDelayMs: number(process.env.TWILLIGHT_QUEUE_DELAY_MS),
   })
   const cli = parseFlags(argv)
-  return normalizeConfig({ ...defaults, ...projectConfig, ...env, ...cli })
+  const providerOverridesProject = Boolean(env.provider || cli.provider)
+  return normalizeConfig(
+    { ...defaults, ...projectConfig, ...env, ...cli },
+    {
+      providerSpecified: Boolean(projectConfig.provider || env.provider || cli.provider),
+      modelSpecified: Boolean(cli.model || env.model || (!providerOverridesProject && projectConfig.model)),
+      modelOverridesProvider: Boolean(cli.model && !cli.provider || env.model && !env.provider && !cli.provider),
+    },
+  )
 }
 
-function normalizeConfig(config) {
+function normalizeConfig(config, flags = {}) {
   const inferredProvider = inferProviderFromModel(config.model)
+  if (flags.modelOverridesProvider && inferredProvider) return { ...config, provider: inferredProvider }
+  if (flags.providerSpecified && !flags.modelSpecified) {
+    return { ...config, model: providerInfo(config.provider).defaultModel || config.model }
+  }
+  if (flags.providerSpecified) return config
   if (inferredProvider && inferredProvider !== config.provider) {
     return { ...config, provider: inferredProvider }
   }
