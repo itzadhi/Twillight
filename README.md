@@ -180,6 +180,8 @@ The folder you launch `twillight` from becomes the active workspace sandbox. Ses
 /run npm test
 /cmd
 /do 3
+/update
+/update-install
 /diff
 /models
 /provider cloudflare https://your-worker-url
@@ -228,6 +230,7 @@ Twillight installs `@opentui/core` with npm and uses its OpenTUI component conce
 /ui    show the active OpenTUI mode
 /cmd   open the command dropdown
 /do 3  run a dropdown command
+/update check npm and prompt to install the latest global release
 /diff  show tracked file-change diffs
 /env   show OpenTUI environment variables and current values
 /components show every virtual OpenTUI component Twillight implements

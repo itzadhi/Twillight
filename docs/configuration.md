@@ -44,6 +44,10 @@ TWILLIGHT_CLOUDFLARE_GATEWAY_URL
 TWILLIGHT_WORKER_TOKEN
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEY
 TWILLIGHT_CLOUDFLARE_GATEWAY_KEYS
+TWILLIGHT_UPDATE_CHECK
+TWILLIGHT_AUTO_UPDATE
+TWILLIGHT_UPDATE_INTERVAL_HOURS
+TWILLIGHT_UPDATE_REGISTRY_URL
 TWILLIGHT_MAX_TOKENS
 TWILLIGHT_REQUEST_TIMEOUT_MS
 TWILLIGHT_QUEUE_DELAY_MS
@@ -117,3 +121,13 @@ cohere/north-mini-code:free
 ```
 
 Fallback models are tried when a model returns empty content or retryable provider errors.
+
+## Updates
+
+Twillight checks npm for newer releases during interactive startup. If a newer release exists, it shows a confirm/skip modal and installs with:
+
+```text
+npm install -g twillight@latest
+```
+
+Use `/update` to force a check, or `/update-install` to check and install. Set `TWILLIGHT_UPDATE_CHECK=0` to disable startup checks, or `TWILLIGHT_AUTO_UPDATE=1` to install automatically after detection.

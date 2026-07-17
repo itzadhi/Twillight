@@ -19,6 +19,7 @@ import { closestCommand, isLikelyModelId, mouseScrollDelta } from "../src/cli/in
 import { cloudflareEndpoint, isCloudflareChallengeText, normalizeProviderContent, providerHttpError, responseFromJson } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
+import { isNewerVersion, packageMetadata } from "../src/update/checker.mjs"
 
 const root = mkdtempSync(join(tmpdir(), "twillight-"))
 process.env.TWILLIGHT_CONFIG_DIR = join(root, "config")
@@ -36,16 +37,25 @@ const state = {
 assert.equal(loadConfig(["--read-only"]).permissionMode, "read-only")
 assert.equal(loadConfig(["--model", "@cf/moonshotai/kimi-k2.7-code"]).provider, "cloudflare")
 assert.equal(loadConfig(["--model", "cohere/north-mini-code:free"]).provider, "openrouter")
+assert.equal(loadConfig([]).updateCheck, true)
+assert.equal(isNewerVersion("1.1.10", "1.1.9"), true)
+assert.equal(isNewerVersion("1.1.9", "1.1.10"), false)
+assert.equal(packageMetadata(process.cwd()).name, "twillight")
 const previousProviderEnv = process.env.TWILLIGHT_PROVIDER
 const previousModelEnv = process.env.TWILLIGHT_MODEL
+const previousUpdateEnv = process.env.TWILLIGHT_UPDATE_CHECK
 process.env.TWILLIGHT_PROVIDER = "cloudflare"
 delete process.env.TWILLIGHT_MODEL
 assert.equal(loadConfig([]).provider, "cloudflare")
 assert.equal(loadConfig([]).model, "@cf/moonshotai/kimi-k2.7-code")
+process.env.TWILLIGHT_UPDATE_CHECK = "0"
+assert.equal(loadConfig([]).updateCheck, false)
 if (previousProviderEnv === undefined) delete process.env.TWILLIGHT_PROVIDER
 else process.env.TWILLIGHT_PROVIDER = previousProviderEnv
 if (previousModelEnv === undefined) delete process.env.TWILLIGHT_MODEL
 else process.env.TWILLIGHT_MODEL = previousModelEnv
+if (previousUpdateEnv === undefined) delete process.env.TWILLIGHT_UPDATE_CHECK
+else process.env.TWILLIGHT_UPDATE_CHECK = previousUpdateEnv
 assert.equal(credentialPath(root).toLowerCase().includes("twillight"), true)
 writeCredentials(root, { OPENROUTER_API_KEY: "test-key" })
 assert.equal(readCredentials(root).OPENROUTER_API_KEY, "test-key")
@@ -169,6 +179,7 @@ assert.equal(closestCommand("/dragom"), "/dragon")
 assert.equal(closestCommand("/cmds"), "/cmd")
 assert.equal(closestCommand("/providr"), "/provider")
 assert.equal(closestCommand("/gate"), "/gateway")
+assert.equal(closestCommand("/updat"), "/update")
 assert.equal(closestCommand("/provider"), "")
 assert.equal(polishAssistantText("Theusertypedwhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.").includes(". This"), true)
 assert.equal(polishAssistantText("Theuserasks\"yourmodelname\".ThesystemsaysweareTwillight.Ishouldanswer.").includes("The user asks"), true)

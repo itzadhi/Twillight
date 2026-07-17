@@ -9,6 +9,8 @@ Twillight supports natural chat plus slash commands.
 /cmd           open command dropdown
 /cmds          alias for /cmd
 /status        show session state
+/update        check npm for a newer Twillight release
+/update-install install latest globally with npm
 /clear         clear conversation view
 /exit          exit
 ```

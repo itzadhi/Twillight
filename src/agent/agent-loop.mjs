@@ -643,6 +643,8 @@ function showCommandMenu(state) {
 export function createCommandMenu() {
   return [
     { label: "Doctor", command: "/doctor", description: "Diagnose install, PATH, and developer identity" },
+    { label: "Check update", command: "/update", description: "Detect newer npm release" },
+    { label: "Install update", command: "/update-install", description: "Install latest globally with npm" },
     { label: "Show files", command: "/files", description: "Open file list" },
     { label: "Show changes", command: "/changes", description: "Inspect session changes" },
     { label: "Copy code block", command: "/copy 1", description: "Copy latest code block" },

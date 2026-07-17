@@ -81,31 +81,70 @@ export function renderChatTurn(state, input, output) {
   return true
 }
 
-export function renderCommandPalette(state, selected = 0) {
-  const rows = state.commandMenu?.length ? state.commandMenu : defaultCommands()
+export function renderCommandPalette(state, selected = 0, query = "/", filteredRows = null) {
+  const rows = filteredRows || (state.commandMenu?.length ? state.commandMenu : defaultCommands())
   const width = frameWidth()
-  const menuWidth = Math.min(70, width - 10)
+  const maxRows = Math.min(12, Math.max(6, termRows() - 14))
+  const clampedSelected = Math.max(0, Math.min(selected, Math.max(0, rows.length - 1)))
+  const scrollStart = Math.max(0, Math.min(clampedSelected - maxRows + 1, Math.max(0, rows.length - maxRows)))
+  const visibleRows = rows.slice(scrollStart, scrollStart + maxRows)
+  const menuWidth = Math.min(74, width - 10)
   const bodyWidth = menuWidth - 4
   state.ui.clear()
-  blank(state.ui, Math.max(2, Math.floor((termRows() - rows.length - 8) / 2)))
-  state.ui.write(center(`${rgb(theme.line, "╭")}${rgb(theme.line, " command palette ".padEnd(menuWidth - 2, "─"))}${rgb(theme.line, "╮")}`, width))
-  state.ui.write(center(`${rgb(theme.line, "│")}${bg(theme.rail, `${rgb(theme.muted, " ↑/↓ move   enter run   esc close ")}${" ".repeat(Math.max(0, menuWidth - 34))}`)}${rgb(theme.line, "│")}`, width))
-  state.ui.write(center(`${rgb(theme.line, "├")}${rgb(theme.line, "─".repeat(menuWidth - 2))}${rgb(theme.line, "┤")}`, width))
-  for (const [index, item] of rows.entries()) {
+  blank(state.ui, Math.max(2, Math.floor((termRows() - visibleRows.length - 10) / 2)))
+  state.ui.write(center(`${rgb(theme.muted, "commands")} ${rgb(theme.border, "select with")} ${rgb(theme.text, "enter")} ${rgb(theme.border, "· filter by typing · esc closes")}`, width))
+  state.ui.write(center(`${rgb(theme.border, "▌")}${bg(theme.input, ` ${rgb(theme.text, clean(query || "/"))}${" ".repeat(Math.max(0, menuWidth - clean(query || "/").length - 2))}`)}${rgb(theme.border, "▐")}`, width))
+  state.ui.write(center(`${rgb(theme.line, "╭")}${rgb(theme.line, " dropdown ".padEnd(menuWidth - 2, "─"))}${rgb(theme.line, "╮")}`, width))
+  for (const [index, item] of visibleRows.entries()) {
+    const absoluteIndex = scrollStart + index
     const command = item.command.padEnd(14)
     const description = item.description || item.label
     const raw = `${command}${description}`
     const text = clipVisible(raw, bodyWidth)
     const fill = " ".repeat(Math.max(0, bodyWidth - clean(text).length))
-    const row = index === selected
+    const row = absoluteIndex === clampedSelected
       ? bg(theme.select, rgb(theme.bg, `${text}${fill}`))
       : bg(theme.input, `${rgb(theme.text, command)}${rgb(theme.muted, description)}${fill}`)
-    state.ui.write(center(`${rgb(theme.line, "│")}${rgb(theme.border, index === selected ? "▌" : " ")}${row}${rgb(theme.border, " ")}${rgb(theme.line, "│")}`, width))
+    const marker = absoluteIndex === clampedSelected ? "▌" : " "
+    state.ui.write(center(`${rgb(theme.line, "│")}${rgb(theme.border, marker)}${row}${rgb(theme.border, " ")}${rgb(theme.line, "│")}`, width))
+  }
+  if (!visibleRows.length) {
+    const text = rgb(theme.muted, "No matching command. Press esc or keep typing.")
+    state.ui.write(center(`${rgb(theme.line, "│")} ${text}${" ".repeat(Math.max(0, bodyWidth - clean(text).length + 1))}${rgb(theme.line, "│")}`, width))
   }
   state.ui.write(center(`${rgb(theme.line, "├")}${rgb(theme.line, "─".repeat(menuWidth - 2))}${rgb(theme.line, "┤")}`, width))
+  if (rows.length > visibleRows.length) {
+    const more = [
+      scrollStart > 0 ? "↑ more" : "      ",
+      scrollStart + visibleRows.length < rows.length ? "↓ more" : "      ",
+    ].join("  ")
+    state.ui.write(center(`${rgb(theme.line, "│")} ${rgb(theme.muted, more)}${" ".repeat(Math.max(0, menuWidth - clean(more).length - 4))} ${rgb(theme.line, "│")}`, width))
+    state.ui.write(center(`${rgb(theme.line, "├")}${rgb(theme.line, "─".repeat(menuWidth - 2))}${rgb(theme.line, "┤")}`, width))
+  }
   state.ui.write(center(`${rgb(theme.line, "│")}${statusLine(state, menuWidth - 2)}${rgb(theme.line, "│")}`, width))
   state.ui.write(center(`${rgb(theme.line, "╰")}${rgb(theme.line, "─".repeat(menuWidth - 2))}${rgb(theme.line, "╯")}`, width))
   return true
+}
+
+export function renderUpdatePrompt(state, info, selected = 1) {
+  const width = frameWidth()
+  const modalWidth = Math.min(66, width - 12)
+  const inner = modalWidth - 4
+  const buttons = [
+    selected === 0 ? bg(theme.select, rgb(theme.bg, " Skip ")) : rgb(theme.muted, " Skip "),
+    selected === 1 ? bg(theme.select, rgb(theme.bg, " Install ")) : rgb(theme.text, " Install "),
+  ]
+  state.ui.clear()
+  blank(state.ui, Math.max(2, Math.floor((termRows() - 12) / 2)))
+  state.ui.write(center(`${rgb(theme.line, "╭")}${rgb(theme.line, " update available ".padEnd(modalWidth - 2, "─"))}${rgb(theme.line, "╮")}`, width))
+  state.ui.write(center(modalLine(`${rgb(theme.text, "Twillight")} ${rgb(theme.muted, info.current)} ${rgb(theme.border, "→")} ${rgb(theme.accent, info.latest)}`, inner), width))
+  state.ui.write(center(modalLine("", inner), width))
+  state.ui.write(center(modalLine(rgb(theme.muted, "A newer npm release is available. Install it globally now?"), inner), width))
+  state.ui.write(center(modalLine(rgb(theme.border, info.command || "npm install -g twillight@latest"), inner), width))
+  state.ui.write(center(modalLine("", inner), width))
+  const action = `${buttons[0]}  ${buttons[1]}   ${rgb(theme.muted, "esc closes")}`
+  state.ui.write(center(modalLine(action, inner, "right"), width))
+  state.ui.write(center(`${rgb(theme.line, "╰")}${rgb(theme.line, "─".repeat(modalWidth - 2))}${rgb(theme.line, "╯")}`, width))
 }
 
 export function renderDiffPreview(state, title = "Diff") {
@@ -596,6 +635,14 @@ function chunkPlain(value, width) {
   const chunks = []
   for (let index = 0; index < text.length; index += width) chunks.push(text.slice(index, index + width))
   return chunks
+}
+
+function modalLine(value, width, align = "left") {
+  const clipped = clipVisible(value, width)
+  const pad = Math.max(0, width - clean(clipped).length)
+  const leftPad = align === "right" ? pad : 0
+  const rightPad = align === "right" ? 0 : pad
+  return `${rgb(theme.line, "│")} ${" ".repeat(leftPad)}${clipped}${" ".repeat(rightPad)} ${rgb(theme.line, "│")}`
 }
 
 function center(value, width = frameWidth()) {

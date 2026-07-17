@@ -14,11 +14,12 @@ import { normalizeProviderName, providerInfo, providerNames } from "../providers
 import { skillList } from "../skills/catalog.mjs"
 import { createSessionStore } from "../storage/sessions.mjs"
 import { createRegistry } from "../tools/registry.mjs"
-import { renderCommandPalette, renderChatTurn, renderDashboard, renderInputBoundaryClose, renderInputPrompt, renderPalette, scrollConversation, shouldRedrawInputPrompt } from "../ui/dashboard.mjs"
+import { renderCommandPalette, renderChatTurn, renderDashboard, renderInputBoundaryClose, renderInputPrompt, renderPalette, renderUpdatePrompt, scrollConversation, shouldRedrawInputPrompt } from "../ui/dashboard.mjs"
 import { detectOpenTui } from "../ui/opentui-adapter.mjs"
 import { summarizeOpenTuiEnv } from "../ui/opentui-env.mjs"
 import { renderComponentShowcase } from "../ui/virtual-components.mjs"
 import { bg, createRenderer, rgb, theme, titleCase, truncate } from "../utils/terminal.mjs"
+import { checkForUpdate, installGlobalUpdate, rememberUpdateInstall, rememberUpdateSkip } from "../update/checker.mjs"
 
 export async function main(argv = process.argv.slice(2)) {
   const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
@@ -72,6 +73,7 @@ export async function main(argv = process.argv.slice(2)) {
     return
   }
 
+  await maybePromptUpdate(state)
   await ensureInteractiveKey(state)
   await interactive(state, store, session)
   ui.destroy()
@@ -190,7 +192,89 @@ async function interactive(state, store, session) {
 
 function requiresExclusiveInput(input) {
   const value = String(input || "").trim().toLowerCase()
-  return value === "/key" || value.startsWith("/key ") || value.startsWith("/key-add ") || value.startsWith("/provider ") || ["/groq", "/openrouter", "/openai"].includes(value)
+  return value === "/key" || value.startsWith("/key ") || value.startsWith("/key-add ") || value.startsWith("/provider ") || value === "/update" || value === "/update-install" || ["/groq", "/openrouter", "/openai"].includes(value)
+}
+
+async function maybePromptUpdate(state) {
+  if (!process.stdin.isTTY || state.config.updateCheck === false) return
+  try {
+    const info = await checkForUpdate(state)
+    if (!info?.available) return
+    if (state.config.autoUpdate) {
+      await installUpdate(state, info)
+      return
+    }
+    const choice = await promptUpdateChoice(state, info)
+    if (choice === "install") await installUpdate(state, info)
+    else rememberUpdateSkip(state.root, info)
+  } catch (error) {
+    state.ui.debug?.(`update check skipped: ${error.message || error}`)
+  } finally {
+    restoreSessionView(state)
+  }
+}
+
+async function promptUpdateChoice(state, info) {
+  let selected = 1
+  renderUpdatePrompt(state, info, selected)
+  emitKeypressEvents(process.stdin)
+  const wasRaw = process.stdin.isRaw
+  if (process.stdin.setRawMode) process.stdin.setRawMode(true)
+  process.stdin.resume()
+  return new Promise((resolve) => {
+    function done(value) {
+      process.stdin.off("keypress", onKey)
+      process.stdout.off?.("resize", onResize)
+      if (process.stdin.setRawMode) process.stdin.setRawMode(Boolean(wasRaw))
+      resolve(value)
+    }
+    function onResize() {
+      renderUpdatePrompt(state, info, selected)
+    }
+    function onKey(text, key = {}) {
+      if (key.ctrl && key.name === "c") {
+        void shutdown(state, { exit: true })
+        return
+      }
+      if (key.name === "escape") return done("skip")
+      if (key.name === "left" || key.name === "right" || key.name === "tab") {
+        selected = selected === 1 ? 0 : 1
+        renderUpdatePrompt(state, info, selected)
+        return
+      }
+      if (key.name === "return") return done(selected === 1 ? "install" : "skip")
+      const value = String(text || "").toLowerCase()
+      if (value === "y" || value === "i") return done("install")
+      if (value === "n" || value === "s") return done("skip")
+    }
+    process.stdout.on?.("resize", onResize)
+    process.stdin.on("keypress", onKey)
+  })
+}
+
+async function installUpdate(state, info) {
+  showTwillight(state, "/update", `Installing Twillight ${info.latest} globally...\n\n\`${info.command}\``)
+  const result = installGlobalUpdate(info)
+  if (result.code === 0) {
+    rememberUpdateInstall(state.root, info)
+    showTwillight(state, "/update", [
+      `Installed Twillight ${info.latest} globally.`,
+      "",
+      "Open a new terminal if Windows keeps the old command shim cached.",
+      "",
+      result.stdout.trim().split(/\r?\n/).slice(-4).join("\n"),
+    ].join("\n").trim())
+    return true
+  }
+  showTwillight(state, "/update", [
+    "Update install failed.",
+    "",
+    `Command: \`${result.command}\``,
+    `Exit: ${result.code}`,
+    "",
+    (result.stderr || result.stdout || "No output.").trim(),
+  ].join("\n"))
+  return true
 }
 
 function enqueueInput(state, store, session, input) {
@@ -463,13 +547,20 @@ export function mouseScrollDelta(data) {
 async function openCommandPalette(state) {
   if (!process.stdin.isTTY) return "/cmd"
   state.commandMenu = createCommandMenu()
+  let query = "/"
   let selected = 0
-  renderCommandPalette(state, selected)
+  let rows = filterCommandMenu(state.commandMenu, query)
+  renderCommandPalette(state, selected, query, rows)
   emitKeypressEvents(process.stdin)
   const wasRaw = process.stdin.isRaw
   if (process.stdin.setRawMode) process.stdin.setRawMode(true)
   process.stdin.resume()
   return new Promise((resolve) => {
+    function refresh() {
+      rows = filterCommandMenu(state.commandMenu, query)
+      selected = rows.length ? Math.max(0, Math.min(selected, rows.length - 1)) : 0
+      renderCommandPalette(state, selected, query, rows)
+    }
     function done(value) {
       process.stdin.off("keypress", onKey)
       if (process.stdin.setRawMode) process.stdin.setRawMode(Boolean(wasRaw))
@@ -483,18 +574,38 @@ async function openCommandPalette(state) {
       }
       if (key.name === "escape") return done(null)
       if (key.name === "up" || key.name === "k") {
-        selected = (selected - 1 + state.commandMenu.length) % state.commandMenu.length
-        renderCommandPalette(state, selected)
+        selected = rows.length ? (selected - 1 + rows.length) % rows.length : 0
+        refresh()
         return
       }
       if (key.name === "down" || key.name === "j") {
-        selected = (selected + 1) % state.commandMenu.length
-        renderCommandPalette(state, selected)
+        selected = rows.length ? (selected + 1) % rows.length : 0
+        refresh()
         return
       }
-      if (key.name === "return") return done(state.commandMenu[selected]?.command || null)
+      if (key.name === "backspace") {
+        query = query.length > 1 ? query.slice(0, -1) : "/"
+        selected = 0
+        refresh()
+        return
+      }
+      if (key.name === "return") return done(rows[selected]?.command || (query.trim().startsWith("/") ? query.trim() : null))
+      if (String(_text || "") && !_text.startsWith("\x1b") && !key.ctrl && !key.meta) {
+        query += _text
+        selected = 0
+        refresh()
+      }
     }
     process.stdin.on("keypress", onKey)
+  })
+}
+
+function filterCommandMenu(items, query) {
+  const needle = String(query || "").replace(/^\//, "").trim().toLowerCase()
+  if (!needle) return items
+  return items.filter((item) => {
+    const haystack = `${item.command} ${item.label || ""} ${item.description || ""}`.toLowerCase()
+    return haystack.includes(needle)
   })
 }
 
@@ -578,6 +689,8 @@ async function handleInput(state, input) {
   if (input.startsWith("/image ")) return attachImage(state, input.slice(7).trim())
   if (input === "/config" || input === "/settings") return configBox(state)
   if (input === "/doctor") return doctorStatus(state)
+  if (input === "/update" || input === "/update-check" || input === "/upgrade" || input === "/updates") return updateStatus(state, true)
+  if (input === "/update-install") return updateInstallCommand(state)
   if (input === "/keys") return keysStatus(state)
   if (input === "/providers") return providersStatus(state)
   if (input === "/skills") return skillsStatus(state)
@@ -984,6 +1097,8 @@ function helpText() {
     "- `/skills` show built-in Twillight skills",
     "- `/mcp` show Twillight MCP server command",
     "- `/doctor` diagnose global install, PATH, and developer identity",
+    "- `/update` check npm for a newer Twillight release",
+    "- `/update-install` install the latest Twillight globally with npm",
     "- `/tool-preset all|read|safe|edit|code|autonomous`",
     "- `/image C:\\path\\shot.png` attach image",
     "- `/copy 1` copy latest code block",
@@ -1065,6 +1180,55 @@ function doctorStatus(state) {
     state.ui.row("fix", "open a new terminal after npm install -g twillight"),
   ])
   return true
+}
+
+async function updateStatus(state, force = false) {
+  const stop = state.ui.spinner("checking updates")
+  let info
+  try {
+    info = await checkForUpdate(state, { force })
+  } finally {
+    stop()
+  }
+  if (info.available) {
+    if (process.stdin.isTTY) {
+      const choice = await promptUpdateChoice(state, info)
+      if (choice === "install") return installUpdate(state, info)
+      rememberUpdateSkip(state.root, info)
+    }
+    state.ui.box("update", [
+      state.ui.row("current", info.current),
+      state.ui.row("latest", info.latest),
+      state.ui.row("install", "/update-install"),
+      state.ui.row("command", info.command),
+    ])
+    return true
+  }
+  state.ui.box("update", [
+    state.ui.row("current", info.current || "unknown"),
+    state.ui.row("latest", info.latest || "unknown"),
+    state.ui.row("status", info.reason === "cached" ? "already checked recently" : "up to date"),
+  ])
+  return true
+}
+
+async function updateInstallCommand(state) {
+  const stop = state.ui.spinner("checking latest")
+  let info
+  try {
+    info = await checkForUpdate(state, { force: true })
+  } finally {
+    stop()
+  }
+  if (!info.available) {
+    state.ui.box("update", [
+      state.ui.row("status", "already on latest"),
+      state.ui.row("current", info.current || "unknown"),
+      state.ui.row("latest", info.latest || "unknown"),
+    ])
+    return true
+  }
+  return installUpdate(state, info)
 }
 
 function runCapture(command, args) {
@@ -1277,6 +1441,9 @@ export function closestCommand(input) {
     "/gate": "/gateway",
     "/model": "/models",
     "/mp": "/mcp",
+    "/upgrade": "/update",
+    "/updates": "/update",
+    "/updat": "/update",
   }
   if (aliases[value] || aliases[head]) return aliases[value] || aliases[head]
   const commands = [
@@ -1286,7 +1453,7 @@ export function closestCommand(input) {
     "/model", "/models", "/ollama", "/openai", "/openrouter", "/palette", "/permission", "/permissions", "/provider",
     "/pet", "/plan-mode", "/providers", "/read", "/read-only", "/reject", "/remember", "/rollback", "/run",
     "/sambanova", "/skills", "/standard", "/status", "/tasks", "/tool", "/tool-preset", "/tools", "/ui",
-    "/uncensored", "/undo", "/use", "/workspace", "/write",
+    "/uncensored", "/undo", "/update", "/update-check", "/update-install", "/use", "/workspace", "/write",
   ]
   if (commands.includes(head)) return ""
   let best = { command: "", distance: Infinity }
