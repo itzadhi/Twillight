@@ -6,6 +6,8 @@ The package name is:
 twillight
 ```
 
+npm package names are lowercase. The brand and GitHub repository use `Twillight`.
+
 The CLI bins are:
 
 ```text

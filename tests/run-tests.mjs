@@ -72,6 +72,10 @@ const registry = createRegistry()
 registry.run(state, "write_file", { path: "a.txt", content: "hello" })
 assert.equal(registry.run(state, "read_file", { path: "a.txt" }).content, "hello")
 assert.equal(state.backups.length > 0, true)
+assert.throws(() => registry.run(state, "delete_path", { path: root, confirm: true }))
+assert.throws(() => registry.run(state, "write_file", { path: ".git/config", content: "no" }))
+assert.throws(() => registry.run(state, "run_command", { command: "node --check tests/run-tests.mjs", cwd: `${root}2` }))
+assert.doesNotThrow(() => registry.run(state, "run_command", { command: "node --version", env: { SAFE_FLAG: "1", API_KEY: "blocked" } }))
 state.enabledTools = ["read_file"]
 assert.throws(() => registry.run(state, "write_file", { path: "blocked.txt", content: "no" }))
 state.enabledTools = []

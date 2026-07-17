@@ -72,7 +72,7 @@ Ollama is local and does not need an API key.
 
 ## Developer Identity
 
-The developer dragon unlocks automatically inside the `itzadhi/twillight` repository. It can also be enabled explicitly:
+The developer dragon unlocks automatically inside the `itzadhi/Twillight` repository. It can also be enabled explicitly:
 
 ```cmd
 set TWILLIGHT_CREATOR=itzadhi

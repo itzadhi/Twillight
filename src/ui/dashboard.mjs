@@ -6,7 +6,7 @@ export function renderDashboard(state) {
   const width = frameWidth()
   ui.clear()
   blank(ui, startTop())
-  for (const line of wordmark()) ui.write(center(rgb(theme.accent, line), width))
+  for (const line of wordmark(width)) ui.write(center(rgb(theme.accent, line), width))
   ui.write("")
   ui.write(center(`${rgb(theme.muted, "autonomous terminal coding client")} ${rgb(theme.border, "·")} ${rgb(theme.text, state.config.agentMode)}`, width))
   ui.write("")
@@ -369,7 +369,16 @@ function statusLine(state, width) {
   return bg(theme.input, ` ${left}${" ".repeat(Math.max(2, width - clean(left).length - clean(right).length - 2))}${right} `)
 }
 
-function wordmark() {
+function wordmark(width = frameWidth()) {
+  if (width < 90) {
+    return [
+      "████████╗██╗    ██╗██╗██╗     ██╗     ██╗ ██████╗ ██╗  ██╗████████╗",
+      "╚══██╔══╝██║    ██║██║██║     ██║     ██║██╔════╝ ██║  ██║╚══██╔══╝",
+      "   ██║   ██║ █╗ ██║██║██║     ██║     ██║██║  ███╗███████║   ██║   ",
+      "   ██║   ██║███╗██║██║██║     ██║     ██║██║   ██║██╔══██║   ██║   ",
+      "   ██║   ╚███╔███╔╝██║███████╗███████╗██║╚██████╔╝██║  ██║   ██║   ",
+    ].map((line) => line.slice(0, Math.max(10, width - 2)))
+  }
   return [
     "▄▄▄█████▓ █     █░ ██▓ ██▓     ██▓     ██▓  ▄████  ██░ ██ ▄▄▄█████▓",
     "▓  ██▒ ▓▒▓█░ █ ░█░▓██▒▓██▒    ▓██▒    ▓██▒ ██▒ ▀█▒▓██░ ██▒▓  ██▒ ▓▒",
@@ -395,10 +404,14 @@ function diffRows() {
 
 function defaultCommands() {
   return [
-    { command: "/agents", description: "Switch agent profile" },
+    { command: "/doctor", description: "Diagnose install and identity" },
     { command: "/models", description: "Choose free OpenRouter model" },
+    { command: "/providers", description: "Show providers" },
+    { command: "/skills", description: "Show skills" },
+    { command: "/pet", description: "Show pet" },
     { command: "/copy 1", description: "Copy latest code block" },
     { command: "/tools", description: "Select autonomous tools" },
+    { command: "/tool-preset autonomous", description: "Enable all tools" },
     { command: "/uncensored", description: "Use uncensored free model" },
     { command: "/diff", description: "Open diff viewer" },
     { command: "/files", description: "Browse workspace files" },
@@ -591,7 +604,7 @@ function blank(ui, count) {
 }
 
 function frameWidth() {
-  return Math.max(84, (process.stdout.columns || 110) - 1)
+  return Math.max(50, (process.stdout.columns || 110) - 1)
 }
 
 function inputWidth() {
@@ -601,12 +614,12 @@ function inputWidth() {
 }
 
 function sidebarWidth(width = frameWidth()) {
-  if (width < 96) return 0
-  return Math.min(26, Math.max(20, Math.floor(width * 0.22)))
+  if (width < 118) return 0
+  return Math.min(28, Math.max(22, Math.floor(width * 0.2)))
 }
 
 function centeredInputWidth() {
-  return Math.max(44, Math.min(84, frameWidth() - 8))
+  return Math.max(36, Math.min(84, frameWidth() - 8))
 }
 
 function promptRailExtra() {
@@ -626,9 +639,9 @@ function centerOffset(width) {
 }
 
 function termRows() {
-  return Math.max(24, process.stdout.rows || 32)
+  return Math.max(14, process.stdout.rows || 32)
 }
 
 function startTop() {
-  return Math.max(2, Math.floor(termRows() * 0.24))
+  return Math.max(1, Math.floor(termRows() * 0.2))
 }

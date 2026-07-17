@@ -26,27 +26,32 @@ export function filesystemTools() {
     }),
     tool("write_file", "Write a UTF-8 file atomically", "workspace", (state, input) => {
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, target)
+      const content = String(input.content ?? "")
       mkdirSync(dirname(target), { recursive: true })
       const existed = existsSync(target)
       const before = existed ? readFileSync(target, "utf8") : ""
       state.backups.push({ path: target, existed, content: before })
-      writeFileSync(target, input.content)
-      state.changes.push({ type: "write", path: target, before, after: input.content })
-      return { path: target, bytes: Buffer.byteLength(input.content) }
+      writeFileSync(target, content)
+      state.changes.push({ type: "write", path: target, before, after: content })
+      return { path: target, bytes: Buffer.byteLength(content) }
     }),
     tool("append_file", "Append text to a file", "workspace", (state, input) => {
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, target)
+      const content = String(input.content ?? "")
       mkdirSync(dirname(target), { recursive: true })
       const existed = existsSync(target)
       const before = existed ? readFileSync(target, "utf8") : ""
-      const after = `${before}${input.content}`
+      const after = `${before}${content}`
       state.backups.push({ path: target, existed, content: before })
-      appendFileSync(target, input.content)
+      appendFileSync(target, content)
       state.changes.push({ type: "append", path: target, before, after })
-      return { path: target, bytes: Buffer.byteLength(input.content) }
+      return { path: target, bytes: Buffer.byteLength(content) }
     }),
     tool("make_directory", "Create a directory", "workspace", (state, input) => {
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, target)
       const existed = existsSync(target)
       state.backups.push({ path: target, existed, content: null })
       mkdirSync(target, { recursive: true })
@@ -56,6 +61,7 @@ export function filesystemTools() {
     tool("delete_path", "Delete a file or directory", "workspace", (state, input) => {
       if (!input.confirm) throw new Error("delete_path requires confirm=true")
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, target, { delete: true })
       const existed = existsSync(target)
       const before = existed && statSync(target).isFile() ? readFileSync(target, "utf8") : null
       state.backups.push({ path: target, existed, content: before })
@@ -66,6 +72,8 @@ export function filesystemTools() {
     tool("move_path", "Move or rename a file", "workspace", (state, input) => {
       const from = normalizePath(state, input.from, { workspaceOnly: state.config.permissionMode !== "full-access" })
       const to = normalizePath(state, input.to, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, from, { delete: true })
+      assertSafeMutation(state, to)
       mkdirSync(dirname(to), { recursive: true })
       renameSync(from, to)
       state.changes.push({ type: "move", path: `${from} -> ${to}` })
@@ -74,6 +82,7 @@ export function filesystemTools() {
     tool("copy_path", "Copy a file", "workspace", (state, input) => {
       const from = normalizePath(state, input.from, { workspaceOnly: state.config.permissionMode !== "full-access" })
       const to = normalizePath(state, input.to, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      assertSafeMutation(state, to)
       mkdirSync(dirname(to), { recursive: true })
       const existed = existsSync(to)
       const before = existed && statSync(to).isFile() ? readFileSync(to, "utf8") : null
@@ -88,6 +97,13 @@ export function filesystemTools() {
       return { path: target, type: stat.isDirectory() ? "dir" : "file", bytes: stat.size }
     }),
   ]
+}
+
+function assertSafeMutation(state, target, options = {}) {
+  const normalized = String(target || "").replace(/\\/g, "/").toLowerCase()
+  const root = String(state.root || "").replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "")
+  if (options.delete && normalized.replace(/\/+$/, "") === root) throw new Error("Refusing to delete the workspace root.")
+  if (/(^|\/)\.git(\/|$)/i.test(normalized)) throw new Error("Refusing to mutate .git internals.")
 }
 
 function tool(name, description, permission, run) {

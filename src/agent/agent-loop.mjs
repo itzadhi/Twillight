@@ -454,14 +454,20 @@ function showCommandMenu(state) {
 
 export function createCommandMenu() {
   return [
+    { label: "Doctor", command: "/doctor", description: "Diagnose install, PATH, and developer identity" },
     { label: "Show files", command: "/files", description: "Open file list" },
     { label: "Show changes", command: "/changes", description: "Inspect session changes" },
     { label: "Copy code block", command: "/copy 1", description: "Copy latest code block" },
     { label: "Tool selector", command: "/tools", description: "Choose autonomous tools" },
+    { label: "Autonomous tools", command: "/tool-preset autonomous", description: "Enable every local tool" },
     { label: "MCP server", command: "/mcp", description: "Show Twillight MCP stdio command" },
-    { label: "Provider", command: "/provider openrouter", description: "Switch OpenRouter/Groq/OpenAI" },
+    { label: "Providers", command: "/providers", description: "Show provider catalog" },
+    { label: "Provider", command: "/provider openrouter", description: "Switch provider" },
     { label: "Keys", command: "/keys", description: "Show saved key counts" },
     { label: "Add key", command: "/key-add openrouter", description: "Add key for rotation" },
+    { label: "Skills", command: "/skills", description: "Show built-in skills" },
+    { label: "Pet", command: "/pet", description: "Show pet status" },
+    { label: "Developer dragon", command: "/dragon", description: "Unlock dragon for project dev" },
     { label: "Uncensored free model", command: "/uncensored", description: "Use Venice uncensored free" },
     { label: "Open diff viewer", command: "/diff", description: "Open diff viewer" },
     { label: "Git status", command: "/git-status", description: "Show repository changes" },

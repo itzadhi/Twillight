@@ -97,7 +97,7 @@ twillight
 
 ## npm Package
 
-Twillight is prepared as an npm CLI package named `twillight`.
+Twillight is prepared as an npm CLI package named `twillight`. npm package names are lowercase, while the brand and GitHub repository use `Twillight`.
 
 Local install/test:
 

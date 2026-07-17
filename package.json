@@ -1,8 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "twillight",
-  "version": "1.1.1",
+  "version": "1.1.2",
+  "displayName": "Twillight",
   "description": "Twillight AI-powered development tool",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/itzadhi/Twillight.git"
+  },
+  "homepage": "https://github.com/itzadhi/Twillight#readme",
+  "bugs": {
+    "url": "https://github.com/itzadhi/Twillight/issues"
+  },
   "private": false,
   "type": "module",
   "packageManager": "npm@11.12.1",

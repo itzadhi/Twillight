@@ -463,6 +463,7 @@ async function handleInput(state, input) {
   if (input === "/tools" || input === "/tools-ui") return toolsStatus(state)
   if (input.startsWith("/tool ")) return setTool(state, input.slice(6).trim())
   if (input.startsWith("/tool-preset ")) return setToolPreset(state, input.slice(13).trim())
+  if (input.startsWith("/do ")) return runSelectedCommand(state, input.slice(4).trim())
   if (input === "/clear") {
     state.messages = []
     state.turns = 0
@@ -500,6 +501,7 @@ async function handleInput(state, input) {
   if (input === "/providers") return providersStatus(state)
   if (input === "/skills") return skillsStatus(state)
   if (input === "/pet") return petStatus(state)
+  if (input.startsWith("/pet ")) return setPet(state, input.slice(5).trim())
   if (input === "/dragon") return setPet(state, "dragon")
   if (input === "/key" || input.startsWith("/key ")) return saveKeyPrompt(state, input.slice(4).trim(), false)
   if (input.startsWith("/key-add ")) return saveKeyPrompt(state, input.slice(9).trim(), true)
@@ -522,6 +524,16 @@ async function handleInput(state, input) {
   input = attachPastedImages(state, input)
   await safeChatOrAction(state, input)
   return true
+}
+
+async function runSelectedCommand(state, value) {
+  const index = Number(value) - 1
+  if (!Number.isInteger(index) || index < 0) throw new Error("Use /do <number> after opening /cmd.")
+  if (!state.commandMenu?.length) state.commandMenu = createCommandMenu()
+  const item = state.commandMenu[index]
+  if (!item) throw new Error("That command number is not available. Open /cmd and choose a listed number.")
+  state.ui.box("command", [state.ui.row("selected", item.label || item.command), state.ui.row("runs", item.command)])
+  return handleInput(state, item.command)
 }
 
 function toolsStatus(state) {

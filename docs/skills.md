@@ -47,4 +47,4 @@ Developer-only dragon:
 /dragon
 ```
 
-The dragon unlocks inside the `itzadhi/twillight` repository, or when `TWILLIGHT_CREATOR=itzadhi` / `TWILLIGHT_DEV=1` is set.
+The dragon unlocks inside the `itzadhi/Twillight` repository, or when `TWILLIGHT_CREATOR=itzadhi` / `TWILLIGHT_DEV=1` is set.
