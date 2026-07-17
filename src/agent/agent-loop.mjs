@@ -46,6 +46,8 @@ export async function askModel(state, task) {
 export function polishAssistantText(value) {
   let text = String(value || "").trim()
   if (!text) return text
+  const repeated = repeatedLineSummary(text)
+  if (repeated) return repeated
   const whitespace = (text.match(/\s/g) || []).length
   const camelJams = (text.match(/[a-z][A-Z]/g) || []).length
   const punctuationJams = (text.match(/[.!?;:][A-Za-z0-9"']/g) || []).length
@@ -83,6 +85,25 @@ export function polishAssistantText(value) {
     .replace(/\s+/g, " ")
     .trim()
   return text
+}
+
+function repeatedLineSummary(value) {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length < 6) return ""
+  const counts = new Map()
+  for (const line of lines) counts.set(line, (counts.get(line) || 0) + 1)
+  const [line, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || ["", 0]
+  if (count < 5 || count < lines.length * 0.45) return ""
+  return [
+    "The model repeated itself, so I stopped the noisy output.",
+    "",
+    `Repeated ${count}x: ${line}`,
+    "",
+    "Try switching models with `/models`, or use `/provider cloudflare` if your Worker route is ready.",
+  ].join("\n")
 }
 
 async function chatWithFallbacks(state, messages, callbacks) {
@@ -504,11 +525,14 @@ export function createCommandMenu() {
     { label: "Autonomous tools", command: "/tool-preset autonomous", description: "Enable every local tool" },
     { label: "MCP server", command: "/mcp", description: "Show Twillight MCP stdio command" },
     { label: "Providers", command: "/providers", description: "Show provider catalog" },
-    { label: "Provider", command: "/provider openrouter", description: "Switch provider" },
+    { label: "OpenRouter", command: "/provider openrouter", description: "Switch to OpenRouter" },
+    { label: "Cloudflare AI", command: "/provider cloudflare", description: "Switch to Workers AI gateway" },
+    { label: "Cloudflare Kimi", command: "/model @cf/moonshotai/kimi-k2.7-code", description: "Use Kimi code model" },
     { label: "Keys", command: "/keys", description: "Show saved key counts" },
     { label: "Add key", command: "/key-add openrouter", description: "Add key for rotation" },
     { label: "Skills", command: "/skills", description: "Show built-in skills" },
     { label: "Pet", command: "/pet", description: "Show pet status" },
+    { label: "Sprite pet", command: "/pet sprite", description: "Use default visual pet" },
     { label: "Developer dragon", command: "/dragon", description: "Unlock dragon for project dev" },
     { label: "Uncensored free model", command: "/uncensored", description: "Use Venice uncensored free" },
     { label: "Open diff viewer", command: "/diff", description: "Open diff viewer" },
@@ -573,7 +597,8 @@ function useModel(state, value) {
   state.previousModel = state.config.model
   state.config.model = selected.id
   state.provider = state.createProvider()
-  showResult(state, "model", { selected: selected.id })
+  state.saveConfig?.()
+  showResult(state, "model", { selected: selected.id, saved: ".ai\\config.yaml" })
   return true
 }
 

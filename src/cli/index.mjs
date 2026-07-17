@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs"
-import { readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { emitKeypressEvents } from "node:readline"
@@ -90,6 +89,9 @@ function createState(root, config, ui, session) {
     createProvider() {
       return createProvider(this.config, this.root, this.ui)
     },
+    saveConfig() {
+      persistProjectConfig(this)
+    },
     registry: createRegistry(),
     taskStore: createTaskStore(root),
     messages: session.messages || [],
@@ -107,6 +109,7 @@ function createState(root, config, ui, session) {
     pendingImplementationPlan: null,
     processing: false,
     exiting: false,
+    shuttingDown: false,
     inputActive: false,
     currentInput: "",
     queueScheduled: false,
@@ -137,20 +140,33 @@ function isProjectDeveloperWorkspace(root, config = {}) {
   }
 }
 
+function persistProjectConfig(state) {
+  const dir = join(state.root, ".ai")
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, "config.yaml")
+  const lines = [
+    `provider: ${state.config.provider}`,
+    `model: ${state.config.model}`,
+    `permissionMode: ${state.config.permissionMode}`,
+    `agentMode: ${state.config.agentMode}`,
+    `streaming: ${state.config.streaming ? "true" : "false"}`,
+  ]
+  if (state.config.cloudflareGatewayUrl) lines.push(`cloudflareGatewayUrl: ${state.config.cloudflareGatewayUrl}`)
+  writeFileSync(file, `${lines.join("\n")}\n`)
+  state.ui.debug?.(`saved config ${file}`)
+}
+
 async function interactive(state, store, session) {
   if (!process.stdin.isTTY) {
     for (const line of (await readStdin()).split(/\r?\n/)) {
       if (!(await handleInput(state, line.trim()))) break
     }
     store.save({ ...session, messages: state.messages, changes: state.changes, commands: state.commands, plan: state.plan })
-    state.ui.dim("[Twillight] bye")
+    await shutdown(state, { animate: false })
     return
   }
   process.on("SIGINT", () => {
-    setMouseTracking(false)
-    state.ui.write("")
-    state.ui.dim("[Twillight] bye")
-    process.exit(0)
+    void shutdown(state, { exit: true })
   })
   setMouseTracking(true)
   while (!state.exiting) {
@@ -163,8 +179,7 @@ async function interactive(state, store, session) {
     }
   }
   while (state.processing) await sleep(50)
-  setMouseTracking(false)
-  state.ui.dim("[Twillight] bye")
+  await shutdown(state)
 }
 
 function requiresExclusiveInput(input) {
@@ -253,10 +268,7 @@ async function readPromptInput(state) {
     }
     function onKey(text, key = {}) {
       if (key.ctrl && key.name === "c") {
-        setMouseTracking(false)
-        state.ui.write("")
-        state.ui.dim("[Twillight] bye")
-        process.exit(0)
+        void shutdown(state, { exit: true })
       }
       const keyMouseDelta = text?.startsWith("\x1b") ? mouseScrollDelta(Buffer.from(text, "latin1")) : 0
       if (keyMouseDelta && state.lastInput && state.lastOutput) {
@@ -346,6 +358,60 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+async function shutdown(state, options = {}) {
+  if (state.shuttingDown) return
+  state.shuttingDown = true
+  state.exiting = true
+  setMouseTracking(false)
+  if (options.animate === false || !process.stdout.isTTY) {
+    state.ui.dim("[Twillight] bye")
+    if (options.exit) process.exit(0)
+    return
+  }
+  await renderClosingAnimation(state)
+  if (options.exit) process.exit(0)
+}
+
+async function renderClosingAnimation(state) {
+  const width = Math.max(60, Math.min(Number(process.stdout.columns || 90), 110))
+  const lines = [
+    ["saving session", "messages, memory, and tool state are tucked away"],
+    ["closing tools", "local workspace handles released"],
+    ["cooling model", `${providerInfo(state.config.provider).title} · ${state.config.model}`],
+    ["fading out", "Twillight is leaving the terminal clean"],
+  ]
+  for (let index = 0; index < lines.length; index += 1) {
+    state.ui.clear()
+    state.ui.write("\n".repeat(Math.max(1, Math.floor((Number(process.stdout.rows || 24) - 10) / 2))))
+    state.ui.write(centerLine(rgb(theme.accent, "T W I L L I G H T"), width))
+    state.ui.write("")
+    state.ui.write(centerLine(`${rgb(theme.text, "shutdown")} ${rgb(theme.border, "·")} ${rgb(theme.muted, lines[index][0])}`, width))
+    state.ui.write("")
+    state.ui.write(centerLine(progressBar(index + 1, lines.length, 36), width))
+    state.ui.write("")
+    state.ui.write(centerLine(rgb(theme.muted, lines[index][1]), width))
+    await sleep(120)
+  }
+  state.ui.clear()
+  state.ui.write("\n".repeat(Math.max(1, Math.floor((Number(process.stdout.rows || 24) - 8) / 2))))
+  state.ui.write(centerLine(rgb(theme.accent, "╭────────────────────────────╮"), width))
+  state.ui.write(centerLine(`${rgb(theme.accent, "│")} ${rgb(theme.text, "Twillight closed gracefully")} ${rgb(theme.accent, "│")}`, width))
+  state.ui.write(centerLine(`${rgb(theme.accent, "│")} ${rgb(theme.muted, "see you in the next build")} ${rgb(theme.accent, "│")}`, width))
+  state.ui.write(centerLine(rgb(theme.accent, "╰────────────────────────────╯"), width))
+  await sleep(180)
+  state.ui.write("")
+}
+
+function progressBar(step, total, width) {
+  const done = Math.max(0, Math.min(width, Math.round((step / total) * width)))
+  return `${rgb(theme.accent, "▌")}${bg(theme.input, `${rgb(theme.accent, "█".repeat(done))}${rgb(theme.border, "░".repeat(width - done))}`)}${rgb(theme.accent, "▐")}`
+}
+
+function centerLine(line, width) {
+  const visible = line.replace(/\x1b\[[0-9;]*m/g, "").length
+  return `${" ".repeat(Math.max(0, Math.floor((width - visible) / 2)))}${line}`
+}
+
 function isApprovalPending(state) {
   const task = state.activeTask
   return task?.status === "awaiting_approval" || Boolean(state.pendingImplementationPlan)
@@ -407,9 +473,7 @@ async function openCommandPalette(state) {
     }
     function onKey(_text, key = {}) {
       if (key.ctrl && key.name === "c") {
-        state.ui.write("")
-        state.ui.dim("[Twillight] bye")
-        process.exit(0)
+        void shutdown(state, { exit: true })
       }
       if (key.name === "escape") return done(null)
       if (key.name === "up" || key.name === "k") {
@@ -488,7 +552,12 @@ async function handleInput(state, input) {
     state.previousModel = state.config.model
     state.config.model = value
     state.provider = createProvider(state.config, state.root, state.ui)
-    state.ui.write(`${rgb(theme.accent, "[Twillight]")} model ${rgb(theme.good, state.config.model)}`)
+    state.saveConfig?.()
+    state.ui.box("model", [
+      state.ui.row("selected", state.config.model),
+      state.ui.row("provider", providerInfo(state.config.provider).title),
+      state.ui.row("saved", ".ai\\config.yaml"),
+    ])
     return true
   }
   if (input === "/plan-mode") return setAgentMode(state, "plan")
@@ -591,9 +660,11 @@ function setPresetModel(state, model) {
   state.config.model = model
   state.config.provider = "openrouter"
   state.provider = createProvider(state.config, state.root, state.ui)
+  state.saveConfig?.()
   state.ui.box("model", [
     state.ui.row("selected", model),
     state.ui.row("source", "OpenRouter Venice Uncensored free"),
+    state.ui.row("saved", ".ai\\config.yaml"),
   ])
   return true
 }
@@ -606,6 +677,7 @@ async function setProvider(state, value) {
   state.config.model = info.defaultModel || state.config.model
   state.provider = createProvider(state.config, state.root, state.ui)
   state.freeModels = []
+  state.saveConfig?.()
   state.ui.box("provider", [
     state.ui.row("selected", info.title),
     state.ui.row("model", state.config.model),
@@ -613,6 +685,7 @@ async function setProvider(state, value) {
     state.ui.row("key list env", apiKeysEnvName(provider) || "none"),
     state.ui.row("keys", String(savedApiKeyCount(state.root, provider))),
     state.ui.row("free", info.freeFriendly ? "yes" : "no"),
+    state.ui.row("saved", ".ai\\config.yaml"),
     state.ui.row("hint", provider === "cloudflare" ? "set TWILLIGHT_CLOUDFLARE_GATEWAY_URL for another Worker URL" : info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
   ])
   if (!info.noAuth && !hasSavedApiKey(state.root, provider)) await saveKeyPrompt(state, provider, false)
@@ -894,11 +967,16 @@ function skillsStatus(state) {
 
 function petStatus(state) {
   const pet = currentPet(state)
+  const art = state.config.pet === "dragon"
+    ? ["       /\\", "  /\\  /  \\  /\\", " <  lavender  >", "  \\/\\____/\\/"]
+    : ["   .--.", "  (o  o)  sprite", "  /|\\/|\\", "   /  \\"]
   state.ui.box("pet", [
+    ...art.map((line) => state.ui.row("", line)),
     state.ui.row("name", pet.name),
     state.ui.row("mood", pet.mood),
     state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
-    state.ui.row("hint", state.isProjectDeveloper ? "/dragon unlocks the developer dragon" : "set TWILLIGHT_CREATOR=itzadhi or run inside itzadhi/twillight"),
+    state.ui.row("switch", "/pet sprite  /dragon"),
+    state.ui.row("hint", state.isProjectDeveloper ? "dragon is available for Adhi/dev repo" : "set TWILLIGHT_CREATOR=itzadhi or run inside itzadhi/twillight"),
   ])
   return true
 }
@@ -1010,6 +1088,7 @@ function setPermission(state, mode) {
     return true
   }
   state.config.permissionMode = mode
+  state.saveConfig?.()
   state.ui.box("permissions", [state.ui.row("mode", mode)])
   status(state)
   return true
