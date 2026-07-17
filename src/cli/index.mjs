@@ -11,6 +11,8 @@ import { createTaskStore } from "../agent/workflow.mjs"
 import { loadConfig } from "../config/loader.mjs"
 import { apiKeyEnvName, apiKeysEnvName, credentialPath, hasSavedApiKey, promptSecret, savedApiKeyCount, saveApiKey } from "../config/credentials.mjs"
 import { createProvider } from "../providers/openrouter-provider.mjs"
+import { normalizeProviderName, providerInfo, providerNames } from "../providers/catalog.mjs"
+import { skillList } from "../skills/catalog.mjs"
 import { createSessionStore } from "../storage/sessions.mjs"
 import { createRegistry } from "../tools/registry.mjs"
 import { renderCommandPalette, renderChatTurn, renderDashboard, renderInputBoundaryClose, renderInputPrompt, renderPalette, scrollConversation, shouldRedrawInputPrompt } from "../ui/dashboard.mjs"
@@ -80,6 +82,7 @@ function createState(root, config, ui, session) {
   return {
     id: session.id || randomUUID().slice(0, 8),
     root,
+    appRoot: dirname(dirname(dirname(fileURLToPath(import.meta.url)))),
     cwd: config.workspace,
     config,
     ui,
@@ -101,6 +104,7 @@ function createState(root, config, ui, session) {
     freeModels: [],
     enabledTools: config.enabledTools ? String(config.enabledTools).split(",").map((item) => item.trim()).filter(Boolean) : [],
     inputQueue: [],
+    pendingImplementationPlan: null,
     processing: false,
     exiting: false,
     inputActive: false,
@@ -111,7 +115,12 @@ function createState(root, config, ui, session) {
     turns: 0,
     tokens: 0,
     reasoningTokens: 0,
+    isProjectDeveloper: isProjectDeveloperWorkspace(root),
   }
+}
+
+function isProjectDeveloperWorkspace(root) {
+  return existsSync(join(root, "src", "cli", "index.mjs")) && existsSync(join(root, "package.json"))
 }
 
 async function interactive(state, store, session) {
@@ -325,7 +334,7 @@ function sleep(ms) {
 
 function isApprovalPending(state) {
   const task = state.activeTask
-  return task?.status === "awaiting_approval"
+  return task?.status === "awaiting_approval" || Boolean(state.pendingImplementationPlan)
 }
 
 function setMouseTracking(enabled) {
@@ -421,6 +430,14 @@ async function handleInput(state, input) {
     if (["no", "n", "reject", "cancel", "stop", "nope"].includes(normalized)) input = "/reject"
   }
   if (input === "/exit" || input === "/quit") return false
+  if (input === "/approve" && state.pendingImplementationPlan) return approveImplementationPlan(state)
+  if (input === "/reject" && state.pendingImplementationPlan) return rejectImplementationPlan(state)
+  if (state.pendingImplementationPlan && !input.startsWith("/")) {
+    state.pendingImplementationPlan = { input, plan: implementationPlan(input) }
+    renderChatTurn(state, input, state.pendingImplementationPlan.plan)
+    keepActivePromptVisible(state)
+    return true
+  }
   if (input === "/help") return help(state)
   if (input === "/dashboard") return renderDashboard(state)
   if (input === "/status") return status(state)
@@ -429,7 +446,7 @@ async function handleInput(state, input) {
   if (input === "/env") return envStatus(state)
   if (input === "/components") return renderComponentShowcase(state.ui, state)
   if (input === "/mcp" || input === "/mp") return mcpStatus(state)
-  if (input === "/tools") return toolsStatus(state)
+  if (input === "/tools" || input === "/tools-ui") return toolsStatus(state)
   if (input.startsWith("/tool ")) return setTool(state, input.slice(6).trim())
   if (input.startsWith("/tool-preset ")) return setToolPreset(state, input.slice(13).trim())
   if (input === "/clear") {
@@ -465,11 +482,20 @@ async function handleInput(state, input) {
   if (input.startsWith("/image ")) return attachImage(state, input.slice(7).trim())
   if (input === "/config" || input === "/settings") return configBox(state)
   if (input === "/keys") return keysStatus(state)
+  if (input === "/providers") return providersStatus(state)
+  if (input === "/skills") return skillsStatus(state)
+  if (input === "/pet") return petStatus(state)
+  if (input === "/dragon") return setPet(state, "dragon")
   if (input === "/key" || input.startsWith("/key ")) return saveKeyPrompt(state, input.slice(4).trim(), false)
   if (input.startsWith("/key-add ")) return saveKeyPrompt(state, input.slice(9).trim(), true)
   if (input.startsWith("/provider ")) return setProvider(state, input.slice(10).trim())
   if (input === "/openrouter") return setProvider(state, "openrouter")
   if (input === "/groq") return setProvider(state, "groq")
+  if (input === "/huggingface" || input === "/hf") return setProvider(state, "huggingface")
+  if (input === "/cerebras") return setProvider(state, "cerebras")
+  if (input === "/sambanova") return setProvider(state, "sambanova")
+  if (input === "/github-models") return setProvider(state, "github")
+  if (input === "/ollama") return setProvider(state, "ollama")
   if (input === "/openai") return setProvider(state, "openai")
   if (input === "/uncensored") return setPresetModel(state, state.config.uncensoredModel || "cognitivecomputations/dolphin-mistral-24b-venice-edition:free")
   if (input === "/copy" || input.startsWith("/copy ")) return copyCodeBlock(state, input.slice(5).trim())
@@ -487,8 +513,9 @@ function toolsStatus(state) {
   const enabled = state.enabledTools?.length ? new Set(state.enabledTools) : null
   state.ui.box("tools", [
     state.ui.row("preset", enabled ? "custom" : "all"),
+    state.ui.row("selector", "/tools-ui"),
     state.ui.row("usage", "/tool on <name>  /tool off <name>"),
-    state.ui.row("presets", "/tool-preset all|read|edit|code|safe"),
+    state.ui.row("presets", "/tool-preset all|read|safe|edit|code|autonomous"),
     ...state.registry.tools.map((tool) => state.ui.row(enabled?.has(tool.name) || !enabled ? "on" : "off", `${tool.name} · ${tool.permission}`)),
   ])
   return true
@@ -514,9 +541,10 @@ function setToolPreset(state, value) {
     safe: ["list_directory", "read_file", "path_info", "search_text", "git_status", "git_diff"],
     edit: ["list_directory", "read_file", "path_info", "search_text", "write_file", "append_file", "make_directory", "copy_path", "git_status", "git_diff"],
     code: all.filter((name) => name !== "delete_path"),
+    autonomous: all,
   }
   const selected = presets[value]
-  if (!selected) throw new Error("Use /tool-preset all, read, safe, edit, or code.")
+  if (!selected) throw new Error("Use /tool-preset all, read, safe, edit, code, or autonomous.")
   state.enabledTools = value === "all" ? [] : selected
   return toolsStatus(state)
 }
@@ -535,27 +563,23 @@ function setPresetModel(state, model) {
 
 async function setProvider(state, value) {
   const provider = normalizeProviderName(value)
-  if (!provider) throw new Error("Use /provider openrouter, /provider groq, or /provider openai.")
+  if (!provider) throw new Error(`Use /provider ${providerNames().join("|")}.`)
+  const info = providerInfo(provider)
   state.config.provider = provider
+  state.config.model = info.defaultModel || state.config.model
   state.provider = createProvider(state.config, state.root, state.ui)
   state.freeModels = []
   state.ui.box("provider", [
-    state.ui.row("selected", provider),
-    state.ui.row("key env", apiKeyEnvName(provider)),
-    state.ui.row("key list env", apiKeysEnvName(provider)),
+    state.ui.row("selected", info.title),
+    state.ui.row("model", state.config.model),
+    state.ui.row("key env", apiKeyEnvName(provider) || "none"),
+    state.ui.row("key list env", apiKeysEnvName(provider) || "none"),
     state.ui.row("keys", String(savedApiKeyCount(state.root, provider))),
-    state.ui.row("hint", hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
+    state.ui.row("free", info.freeFriendly ? "yes" : "no"),
+    state.ui.row("hint", info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
   ])
-  if (!hasSavedApiKey(state.root, provider)) await saveKeyPrompt(state, provider, false)
+  if (!info.noAuth && !hasSavedApiKey(state.root, provider)) await saveKeyPrompt(state, provider, false)
   return true
-}
-
-function normalizeProviderName(value) {
-  const provider = String(value || "").trim().toLowerCase()
-  if (["openrouter", "router", "or"].includes(provider)) return "openrouter"
-  if (["groq"].includes(provider)) return "groq"
-  if (["openai", "oa"].includes(provider)) return "openai"
-  return ""
 }
 
 export function isLikelyModelId(value) {
@@ -621,6 +645,12 @@ async function safeChatOrAction(state, input) {
       keepActivePromptVisible(state)
       return
     }
+    if (needsImplementationPlan(input)) {
+      state.pendingImplementationPlan = { input, plan: implementationPlan(input) }
+      renderChatTurn(state, input, state.pendingImplementationPlan.plan)
+      keepActivePromptVisible(state)
+      return
+    }
     await chat(state, input)
   } catch (error) {
     if (/not a valid model id|invalid model/i.test(error.message || String(error)) && state.previousModel) {
@@ -631,6 +661,44 @@ async function safeChatOrAction(state, input) {
     }
     showTwillight(state, input, friendlyError(error))
   }
+}
+
+async function approveImplementationPlan(state) {
+  const pending = state.pendingImplementationPlan
+  state.pendingImplementationPlan = null
+  if (!pending) return true
+  await chat(state, pending.input)
+  return true
+}
+
+function rejectImplementationPlan(state) {
+  const pending = state.pendingImplementationPlan
+  state.pendingImplementationPlan = null
+  renderChatTurn(state, pending?.input || "plan", "Plan rejected. Send a revised request and I’ll re-plan it cleanly.")
+  keepActivePromptVisible(state)
+  return true
+}
+
+function needsImplementationPlan(input) {
+  const text = String(input || "").toLowerCase()
+  if (text.length < 80) return false
+  return /\b(full|entire|complete|from scratch|system|workflow|pipeline|app|website|dashboard|advanced|production|publish|release)\b/.test(text)
+}
+
+function implementationPlan(input) {
+  return [
+    "## Implementation Plan",
+    "",
+    `Goal: ${input}`,
+    "",
+    "1. Inspect the current project structure and relevant files.",
+    "2. Identify the smallest safe design and files to change.",
+    "3. Apply code/docs changes in focused steps.",
+    "4. Run syntax checks, tests, audit/pack checks when package files changed.",
+    "5. Summarize changes, risks, and next commands.",
+    "",
+    "Reply `accept` to run it, `reject` to stop, or send revisions and I’ll update the plan.",
+  ].join("\n")
 }
 
 function casualResponse(input) {
@@ -675,10 +743,11 @@ function helpText() {
     "## Core",
     "- `/cmd` command dropdown",
     "- `/models` list free OpenRouter models",
+    "- `/providers` list free-friendly providers",
     "- `/uncensored` switch to Venice Uncensored Dolphin Mistral 24B free",
     "- `/use <number>` switch by model list number",
     "- `/model provider/model:id` switch by exact model id",
-    "- `/provider openrouter|groq|openai` switch provider in this session",
+    "- `/provider openrouter|groq|huggingface|cerebras|sambanova|github|ollama|openai` switch provider",
     "- `/key [provider]` save one API key once",
     "- `/key-add [provider]` add another key for rotation",
     "- `/keys` show saved key counts",
@@ -694,6 +763,7 @@ function helpText() {
     "## Tools",
     "- `/files`, `/read`, `/write`, `/append`, `/mkdir`, `/rm`, `/run`",
     "- `/tools` select autonomous tool access",
+    "- `/skills` show built-in Twillight skills",
     "- `/mcp` show Twillight MCP server command",
     "- `/tool-preset all|read|safe|edit|code`",
     "- `/image C:\\path\\shot.png` attach image",
@@ -723,6 +793,47 @@ function mcpStatus(state) {
     state.ui.row("mode", "stdio JSON-RPC"),
   ])
   return true
+}
+
+function providersStatus(state) {
+  state.ui.box("providers", providerNames().map((name) => {
+    const info = providerInfo(name)
+    const key = info.noAuth ? "no key" : `${savedApiKeyCount(state.root, name)} key(s)`
+    return state.ui.row(name, `${info.title} · ${info.freeFriendly ? "free-friendly" : "paid"} · ${key} · ${info.defaultModel}`)
+  }))
+  return true
+}
+
+function skillsStatus(state) {
+  state.ui.box("skills", skillList().flatMap((skill) => [
+    state.ui.row(skill.id, skill.title),
+    state.ui.row("does", skill.description),
+    state.ui.row("uses", skill.commands.join(", ")),
+  ]))
+  return true
+}
+
+function petStatus(state) {
+  const pet = currentPet(state)
+  state.ui.box("pet", [
+    state.ui.row("name", pet.name),
+    state.ui.row("mood", pet.mood),
+    state.ui.row("hint", state.isProjectDeveloper ? "/dragon unlocks the developer dragon" : "developer dragon is project-dev only"),
+  ])
+  return true
+}
+
+function setPet(state, value) {
+  if (value === "dragon" && !state.isProjectDeveloper) {
+    return showTwillight(state, "/dragon", "Developer dragon is locked to the Twillight project developer workspace.")
+  }
+  state.config.pet = value
+  return petStatus(state)
+}
+
+function currentPet(state) {
+  if (state.config.pet === "dragon") return { name: "Lavender Dragon", mood: state.processing ? "guarding the build" : "watching the workspace" }
+  return { name: "Twillight Sprite", mood: state.processing ? "thinking with you" : "ready" }
 }
 
 function showTwillight(state, input, message) {
@@ -797,12 +908,11 @@ function setPermission(state, mode) {
 }
 
 function keysStatus(state) {
-  const providers = ["openrouter", "groq", "openai"]
   state.ui.box("keys", [
     state.ui.row("file", credentialPath(state.root)),
-    ...providers.flatMap((provider) => [
+    ...providerNames().flatMap((provider) => [
       state.ui.row(provider, `${savedApiKeyCount(state.root, provider)} saved/available`),
-      state.ui.row("env", `${apiKeyEnvName(provider)} or ${apiKeysEnvName(provider)}`),
+      state.ui.row("env", apiKeyEnvName(provider) ? `${apiKeyEnvName(provider)} or ${apiKeysEnvName(provider)}` : "no key required"),
     ]),
   ])
   return true
@@ -812,6 +922,7 @@ async function saveKeyPrompt(state, requestedProvider = "", append = false) {
   if (!process.stdin.isTTY) throw new Error("/key requires interactive terminal input.")
   const provider = normalizeProviderName(requestedProvider) || state.provider.provider
   const envName = apiKeyEnvName(provider)
+  if (!envName) return showTwillight(state, `/key ${provider}`, `${providerInfo(provider).title} does not need an API key.`)
   const key = await promptSecret(`${envName}: `)
   saveApiKey(state.root, provider, key, { append })
   if (provider === state.provider.provider) state.provider = createProvider(state.config, state.root, state.ui)

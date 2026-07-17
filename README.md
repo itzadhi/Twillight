@@ -18,6 +18,8 @@ Creator:
 - [Security](docs/security.md)
 - [MCP Server](docs/mcp.md)
 - [npm Publishing](docs/npm-publishing.md)
+- [Providers](docs/providers.md)
+- [Skills](docs/skills.md)
 
 ## Run
 
@@ -53,6 +55,20 @@ Default provider/model:
 
 ```text
 OpenRouter / cohere/north-mini-code:free
+```
+
+Free-friendly providers:
+
+```text
+OpenRouter, Groq, Hugging Face, Cerebras, SambaNova, GitHub Models, Ollama
+```
+
+Use:
+
+```text
+/providers
+/provider groq
+/provider ollama
 ```
 
 Set your key locally:
@@ -144,6 +160,10 @@ The folder you launch `twillight` from becomes the active workspace sandbox. Ses
 /permission standard
 /permission full-access
 /model cohere/north-mini-code:free
+/providers
+/skills
+/pet
+/dragon
 /clear
 /exit
 ```

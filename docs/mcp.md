@@ -24,6 +24,29 @@ Inside Twillight:
 ## Capabilities
 
 The MCP server exposes Twillight tools through `tools/list` and `tools/call`.
+It also exposes:
+
+```text
+resources/list
+resources/read
+prompts/list
+prompts/get
+```
+
+Resources:
+
+```text
+twillight://workspace
+twillight://providers
+twillight://skills
+```
+
+Prompts:
+
+```text
+implementation_plan
+safe_code_review
+```
 
 Tool examples:
 

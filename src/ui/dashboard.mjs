@@ -1,4 +1,5 @@
 import { bg, clean, clipVisible, rgb, theme, truncate } from "../utils/terminal.mjs"
+import { providerInfo } from "../providers/catalog.mjs"
 
 export function renderDashboard(state) {
   const ui = state.ui
@@ -214,6 +215,7 @@ function sideRail(state, width, height = termRows() - 2) {
     headerLine(`Session ${state.id}`),
     "",
     label("Status"),
+    kv("pet", petLine(state)),
     kv("api", state.processing ? rgb(theme.thought, "busy") : rgb(theme.good, "idle")),
     kv("task", taskState),
     kv("step", progress),
@@ -293,10 +295,12 @@ function shortcut(command, description) {
 }
 
 function titleProvider(provider) {
-  const value = String(provider || "openrouter").toLowerCase()
-  if (value === "groq") return "Groq"
-  if (value === "openai") return "OpenAI"
-  return "OpenRouter"
+  return providerInfo(provider).title
+}
+
+function petLine(state) {
+  if (state.config.pet === "dragon" && state.isProjectDeveloper) return state.processing ? "dragon guarding" : "dragon awake"
+  return state.processing ? "sprite thinking" : "sprite ready"
 }
 
 function shortCwd(value) {

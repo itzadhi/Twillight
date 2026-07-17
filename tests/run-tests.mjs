@@ -16,6 +16,8 @@ import { virtualComponents } from "../src/ui/virtual-components.mjs"
 import { extractCodeBlocks } from "../src/ui/dashboard.mjs"
 import { isLikelyModelId, mouseScrollDelta } from "../src/cli/index.mjs"
 import { normalizeProviderContent } from "../src/providers/openrouter-provider.mjs"
+import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
+import { skillList } from "../src/skills/catalog.mjs"
 
 const root = mkdtempSync(join(tmpdir(), "twillight-"))
 process.env.TWILLIGHT_CONFIG_DIR = join(root, "config")
@@ -47,6 +49,11 @@ saveApiKey(root, "groq", "groq-key")
 assert.equal(apiKeyEnvName("groq"), "GROQ_API_KEY")
 assert.equal(apiKeysEnvName("groq"), "GROQ_API_KEYS")
 assert.equal(readCredentials(root).GROQ_API_KEY, "groq-key")
+assert.equal(apiKeyEnvName("ollama"), "")
+assert.equal(normalizeProviderName("hf"), "huggingface")
+assert.equal(providerInfo("ollama").noAuth, true)
+assert.equal(providerNames().includes("sambanova"), true)
+assert.equal(skillList().some((skill) => skill.id === "plan-first-build"), true)
 assert.equal(normalizePath(state, "file.txt").endsWith("file.txt"), true)
 assert.throws(() => normalizePath(state, `${root}2\\escape.txt`, { workspaceOnly: true }))
 assert.throws(() => normalizePath(state, "safe.txt\0bad", { workspaceOnly: true }))

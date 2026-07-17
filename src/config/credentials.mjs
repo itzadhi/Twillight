@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import readline from "node:readline/promises"
 import { Writable } from "node:stream"
+import { providerInfo, providerNames } from "../providers/catalog.mjs"
 
 export function credentialPath(root) {
   return join(userConfigDir(), "credentials.json")
@@ -48,12 +49,13 @@ export async function getApiKey(root, provider, ui) {
 
 export async function getApiKeys(root, provider, ui) {
   const envName = apiKeyEnvName(provider)
+  if (!envName) return [""]
   const fromEnv = readEnvKeys(provider)
   if (fromEnv.length) return fromEnv
   const credentials = readCredentials(root)
   const saved = savedKeys(credentials, provider)
   if (saved.length) return saved
-  if (!process.stdin.isTTY) throw new Error(`${envName} is missing. Run ai interactively once to save it.`)
+  if (!process.stdin.isTTY) throw new Error(`${envName} is missing. Run twillight interactively once to save it.`)
   const value = await promptSecret(`${envName}: `)
   if (!value) throw new Error(`${envName} was not provided.`)
   saveApiKey(root, provider, value)
@@ -62,19 +64,16 @@ export async function getApiKeys(root, provider, ui) {
 }
 
 export function apiKeyEnvName(provider) {
-  if (provider === "openai") return "OPENAI_API_KEY"
-  if (provider === "groq") return "GROQ_API_KEY"
-  return "OPENROUTER_API_KEY"
+  return providerInfo(provider).keyEnv
 }
 
 export function apiKeysEnvName(provider) {
-  if (provider === "openai") return "OPENAI_API_KEYS"
-  if (provider === "groq") return "GROQ_API_KEYS"
-  return "OPENROUTER_API_KEYS"
+  return providerInfo(provider).keysEnv
 }
 
 export function saveApiKey(root, provider, value, options = {}) {
   const envName = apiKeyEnvName(provider)
+  if (!envName) throw new Error(`${provider} does not need an API key.`)
   const key = String(value || "").trim()
   if (!isUsableKey(key)) throw new Error(`${envName} was not provided.`)
   const current = readCredentials(root)
@@ -100,7 +99,7 @@ export function maskKey(value) {
 
 function readEnvKeys(provider) {
   const values = []
-  for (const name of [apiKeysEnvName(provider), ...credentialAliases(apiKeyEnvName(provider))]) {
+  for (const name of [apiKeysEnvName(provider), ...credentialAliases(apiKeyEnvName(provider))].filter(Boolean)) {
     const value = process.env[name]
     values.push(...splitKeys(value))
   }
@@ -109,15 +108,17 @@ function readEnvKeys(provider) {
 
 function savedKeys(credentials, provider) {
   const values = []
-  values.push(...splitKeys(credentials[apiKeysEnvName(provider)]))
-  for (const name of credentialAliases(apiKeyEnvName(provider))) values.push(...splitKeys(credentials[name]))
+  const listEnv = apiKeysEnvName(provider)
+  if (listEnv) values.push(...splitKeys(credentials[listEnv]))
+  for (const name of credentialAliases(apiKeyEnvName(provider)).filter(Boolean)) values.push(...splitKeys(credentials[name]))
   return uniqueKeys(values)
 }
 
 function normalizeCredentials(credentials) {
   const result = { ...credentials }
-  for (const canonical of ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"]) {
-    const provider = canonical === "OPENAI_API_KEY" ? "openai" : canonical === "GROQ_API_KEY" ? "groq" : "openrouter"
+  for (const provider of providerNames()) {
+    const canonical = apiKeyEnvName(provider)
+    if (!canonical) continue
     const keys = savedKeys(credentials, provider)
     if (keys.length) {
       result[canonical] = keys[0]
@@ -133,12 +134,16 @@ function normalizeCredentials(credentials) {
 function credentialAliases(canonical) {
   if (canonical === "OPENAI_API_KEY") return ["OPENAI_API_KEY", "OPENAI_KEY", "openaiApiKey", "openai_api_key"]
   if (canonical === "GROQ_API_KEY") return ["GROQ_API_KEY", "GROQ_KEY", "GROQ_TOKEN", "GROQ_API_TOKEN", "groqApiKey", "groq_api_key"]
+  if (canonical === "HUGGINGFACE_API_KEY") return ["HUGGINGFACE_API_KEY", "HF_TOKEN", "HF_API_KEY", "HUGGINGFACE_TOKEN", "huggingfaceApiKey"]
+  if (canonical === "CEREBRAS_API_KEY") return ["CEREBRAS_API_KEY", "CEREBRAS_KEY", "CEREBRAS_TOKEN", "cerebrasApiKey"]
+  if (canonical === "SAMBANOVA_API_KEY") return ["SAMBANOVA_API_KEY", "SAMBANOVA_KEY", "SAMBANOVA_TOKEN", "sambanovaApiKey"]
+  if (canonical === "GITHUB_TOKEN") return ["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_MODELS_TOKEN", "githubToken"]
   return ["OPENROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_TOKEN", "OPENROUTER_API_TOKEN", "openrouterApiKey", "openrouter_api_key"]
 }
 
 function isUsableKey(value) {
   const key = String(value || "").trim()
-  return Boolean(key && key !== "your_new_key_here" && key !== "<OPENROUTER_API_KEY>" && key !== "<OPENAI_API_KEY>" && key !== "<GROQ_API_KEY>")
+  return Boolean(key && key !== "your_new_key_here" && !/^<[^>]+>$/.test(key))
 }
 
 function splitKeys(value) {

@@ -1,21 +1,23 @@
 import { getApiKeys, maskKey } from "../config/credentials.mjs"
+import { normalizeProviderName, providerInfo } from "./catalog.mjs"
 
 export function createProvider(config, root, ui) {
-  const provider = ["openai", "groq"].includes(config.provider) ? config.provider : "openrouter"
+  const provider = normalizeProviderName(config.provider) || "openrouter"
+  const info = providerInfo(provider)
   let cachedApiKeys = []
   async function apiKeys() {
     if (cachedApiKeys.length) return cachedApiKeys
     cachedApiKeys = await getApiKeys(root, provider, ui)
     return cachedApiKeys
   }
-  const endpoint = providerEndpoint(provider)
+  const endpoint = { chat: info.chat, models: info.models }
   return {
     provider,
     model: config.model,
     async models() {
       return withKeys(await apiKeys(), async (key) => {
         const response = await fetch(endpoint.models, {
-          headers: { Authorization: `Bearer ${key}` },
+          headers: authHeaders(provider, key),
           signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
         })
         if (!response.ok) throw await providerHttpError(response, key)
@@ -36,9 +38,9 @@ export function createProvider(config, root, ui) {
         const response = await fetch(endpoint.chat, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${key}`,
             "Content-Type": "application/json",
-            ...(provider === "openrouter" ? { "HTTP-Referer": "http://localhost", "X-Title": "Twillight" } : {}),
+            ...authHeaders(provider, key),
+            ...providerHeaders(provider),
           },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
@@ -61,9 +63,9 @@ async function retryWithoutStreaming(url, key, provider, config, body, previousD
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
-      ...(provider === "openrouter" ? { "HTTP-Referer": "http://localhost", "X-Title": "Twillight" } : {}),
+      ...authHeaders(provider, key),
+      ...providerHeaders(provider),
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
@@ -73,25 +75,6 @@ async function retryWithoutStreaming(url, key, provider, config, body, previousD
   const result = responseFromJson(data, { source: "retry-json", previous: previousDebug })
   result.debug = { ...result.debug, retryAfterEmptyStream: true }
   return result
-}
-
-function providerEndpoint(provider) {
-  if (provider === "openai") {
-    return {
-      chat: "https://api.openai.com/v1/chat/completions",
-      models: "https://api.openai.com/v1/models",
-    }
-  }
-  if (provider === "groq") {
-    return {
-      chat: "https://api.groq.com/openai/v1/chat/completions",
-      models: "https://api.groq.com/openai/v1/models",
-    }
-  }
-  return {
-    chat: "https://openrouter.ai/api/v1/chat/completions",
-    models: "https://openrouter.ai/api/v1/models",
-  }
 }
 
 async function withKeys(keys, request) {
@@ -105,6 +88,17 @@ async function withKeys(keys, request) {
     }
   }
   throw lastError
+}
+
+function authHeaders(provider, key) {
+  if (providerInfo(provider).noAuth) return {}
+  return key ? { Authorization: `Bearer ${key}` } : {}
+}
+
+function providerHeaders(provider) {
+  if (provider === "openrouter") return { "HTTP-Referer": "http://localhost", "X-Title": "Twillight" }
+  if (provider === "github") return { "api-version": "2024-05-01-preview" }
+  return {}
 }
 
 function isRetryableKeyError(error) {
