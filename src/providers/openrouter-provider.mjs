@@ -11,27 +11,24 @@ export function createProvider(config, root, ui) {
     return cachedApiKeys
   }
   const endpoint = provider === "cloudflare"
-    ? {
-        chat: config.cloudflareGatewayUrl || process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL || info.chat,
-        models: config.cloudflareGatewayUrl || process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL || info.models,
-      }
+    ? cloudflareEndpoints(config, info)
     : { chat: info.chat, models: info.models }
   return {
     provider,
     model: config.model,
     async models() {
+      if (provider === "cloudflare") return withKeys(await apiKeys(), (key) => cloudflareModels(endpoint.models, config, info, key))
       return withKeys(await apiKeys(), async (key) => {
         const response = await fetch(endpoint.models, {
-          headers: authHeaders(provider, key),
+          headers: { Accept: "application/json", ...authHeaders(provider, key), ...providerHeaders(provider) },
           signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
         })
-        if (!response.ok) throw await providerHttpError(response, key)
-        const data = await response.json()
+        const data = await readProviderJson(response, key, { provider, endpoint: endpoint.models })
         return normalizeModels(provider, data)
       })
     },
     async chat(messages, callbacks = {}) {
-      if (provider === "cloudflare") return cloudflareChat(endpoint.chat, config, messages)
+      if (provider === "cloudflare") return withKeys(await apiKeys(), (key) => cloudflareChat(endpoint.chat, config, messages, key))
       return withKeys(await apiKeys(), async (key) => {
         const body = {
           model: config.model,
@@ -51,21 +48,67 @@ export function createProvider(config, root, ui) {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
         })
-        if (!response.ok) throw await providerHttpError(response, key)
+        if (!response.ok) throw await providerHttpError(response, key, { provider, endpoint: endpoint.chat, model: config.model })
         if (config.streaming) {
           const streamed = await stream(response, callbacks)
           if (streamed.content) return streamed
           ui.debug?.(`empty streaming response provider=${provider} model=${config.model} finish=${streamed.debug.finishReason || "unknown"} chunks=${streamed.debug.chunks} keys=${streamed.debug.keys.join(",") || "none"}`)
           return retryWithoutStreaming(endpoint.chat, key, provider, config, { ...body, stream: false, stream_options: undefined }, streamed.debug)
         }
-        const data = await response.json()
+        const data = await readProviderJson(response, key, { provider, endpoint: endpoint.chat, model: config.model })
+        const jsonError = providerJsonError(data, { provider, model: config.model })
+        if (jsonError) throw jsonError
         return responseFromJson(data, { source: "json" })
       })
     },
   }
 }
 
-async function cloudflareChat(url, config, messages) {
+function cloudflareEndpoints(config, info) {
+  const base = config.cloudflareGatewayUrl || process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL || info.chat
+  return {
+    chat: cloudflareEndpoint(base, "chat"),
+    models: cloudflareEndpoint(base, "models"),
+  }
+}
+
+export function cloudflareEndpoint(base, kind) {
+  const raw = String(base || "").trim().replace(/\/+$/, "")
+  if (!raw) return raw
+  try {
+    const url = new URL(raw)
+    const path = url.pathname.replace(/\/+$/, "")
+    if (kind === "chat" && /\/(?:v1\/chat\/completions|chat)$/i.test(path)) return raw
+    if (kind === "models" && /\/(?:v1\/models|models)$/i.test(path)) return raw
+    if (kind === "chat" && /\/(?:v1\/models|models)$/i.test(path)) return raw.replace(/\/(?:v1\/models|models)$/i, "/v1/chat/completions")
+    if (kind === "models" && /\/(?:v1\/chat\/completions|chat)$/i.test(path)) return raw.replace(/\/(?:v1\/chat\/completions|chat)$/i, "/models")
+    return `${raw}/${kind === "chat" ? "v1/chat/completions" : "models"}`
+  } catch {
+    return raw
+  }
+}
+
+async function cloudflareModels(url, config, info, key = "") {
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json", ...authHeaders("cloudflare", key), ...providerHeaders("cloudflare") },
+      signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
+    })
+    const data = await readProviderJson(response, "", { provider: "cloudflare", endpoint: url })
+    const models = normalizeModels("cloudflare", data)
+    return models.length ? models : fallbackModelRows(info, "catalog")
+  } catch (error) {
+    if (error.providerBlocked || error.nonJsonProvider) return fallbackModelRows(info, error.providerBlocked ? "gateway blocked" : "metadata unavailable")
+    if ([401, 403].includes(Number(error.status || 0))) return fallbackModelRows(info, "gateway unauthorized")
+    throw error
+  }
+}
+
+function fallbackModelRows(info, context) {
+  return (info.fallbackModels || []).map((id) => ({ id, context }))
+}
+
+async function cloudflareChat(url, config, messages, key = "") {
   const body = {
     model: config.model,
     messages,
@@ -76,12 +119,13 @@ async function cloudflareChat(url, config, messages) {
   }
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...providerHeaders("cloudflare") },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders("cloudflare", key), ...providerHeaders("cloudflare") },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
   })
-  if (!response.ok) throw await providerHttpError(response, "")
-  const data = await response.json()
+  const data = await readProviderJson(response, "", { provider: "cloudflare", endpoint: url, model: config.model })
+  const jsonError = providerJsonError(data, { provider: "cloudflare", model: config.model })
+  if (jsonError) throw jsonError
   return responseFromJson(data, { source: "cloudflare-worker" })
 }
 
@@ -96,8 +140,9 @@ async function retryWithoutStreaming(url, key, provider, config, body, previousD
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
   })
-  if (!response.ok) throw await providerHttpError(response, key)
-  const data = await response.json()
+  const data = await readProviderJson(response, key, { provider, endpoint: url, model: config.model })
+  const jsonError = providerJsonError(data, { provider, model: config.model })
+  if (jsonError) throw jsonError
   const result = responseFromJson(data, { source: "retry-json", previous: previousDebug })
   result.debug = { ...result.debug, retryAfterEmptyStream: true }
   return result
@@ -117,7 +162,10 @@ async function withKeys(keys, request) {
 }
 
 function authHeaders(provider, key) {
-  if (providerInfo(provider).noAuth) return {}
+  if (providerInfo(provider).noAuth) {
+    if (provider === "cloudflare" && key) return { Authorization: `Bearer ${key}`, "X-Twillight-Gateway-Key": key, "X-API-Key": key }
+    return {}
+  }
   return key ? { Authorization: `Bearer ${key}` } : {}
 }
 
@@ -153,21 +201,104 @@ function normalizeModels(provider, data) {
   }))
 }
 
-async function providerHttpError(response, key) {
-  const message = await providerError(response)
-  const error = new Error(`${message} [key ${maskKey(key)}]`)
+async function readProviderJson(response, key, context = {}) {
+  const text = await response.text()
+  if (!response.ok) throw providerHttpErrorFromText(response, text, key, context)
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw providerNonJsonError(response, text, context)
+  }
+}
+
+export async function providerHttpError(response, key, context = {}) {
+  const text = await response.text()
+  return providerHttpErrorFromText(response, text, key, context)
+}
+
+function providerHttpErrorFromText(response, text, key, context = {}) {
+  let message = providerErrorFromText(response, text, context)
+  if (context.provider === "cloudflare" && [401, 403].includes(Number(response.status || 0)) && !isCloudflareChallengeText(text)) {
+    message = `${message}. ${key ? "The saved Cloudflare gateway token was rejected." : "This Cloudflare gateway requires a token."} Use /key cloudflare to save it, or make the Worker route public.`
+  }
+  const error = new Error(`${message}${key ? ` [key ${maskKey(key)}]` : ""}`)
   error.status = response.status
+  error.retryModels = isRetryableProviderFailure(response.status, message)
+  if (context.provider === "cloudflare" && [401, 403].includes(Number(response.status || 0))) {
+    error.nonRetryable = true
+    error.retryModels = false
+  }
+  if (isCloudflareChallengeText(text)) {
+    error.providerBlocked = true
+    error.nonRetryable = true
+    error.retryModels = false
+  }
   return error
 }
 
-async function providerError(response) {
-  const text = await response.text()
+function providerNonJsonError(response, text, context = {}) {
+  const challenge = isCloudflareChallengeText(text)
+  const label = providerInfo(context.provider).title
+  const error = new Error(challenge
+    ? cloudflareChallengeMessage(response, context)
+    : `${response.status || 200} ${response.statusText || "OK"}: ${label} returned non-JSON from ${context.endpoint || "provider endpoint"}.`)
+  error.status = response.status || 200
+  error.nonJsonProvider = true
+  error.providerBlocked = challenge
+  error.nonRetryable = challenge
+  error.retryModels = false
+  return error
+}
+
+function providerErrorFromText(response, text, context = {}) {
+  if (isCloudflareChallengeText(text)) return cloudflareChallengeMessage(response, context)
   try {
     const data = JSON.parse(text)
-    return `${response.status} ${response.statusText}: ${data.error?.message || data.message || text}`
+    return `${response.status} ${response.statusText}: ${extractProviderErrorMessage(data) || text}`
   } catch {
-    return `${response.status} ${response.statusText}: ${text}`
+    return `${response.status} ${response.statusText}: ${text.slice(0, 1000)}`
   }
+}
+
+function cloudflareChallengeMessage(response, context = {}) {
+  const endpoint = context.endpoint || "the Cloudflare Worker gateway"
+  return [
+    `${response.status} ${response.statusText}: Cloudflare is blocking Twillight with a browser challenge at ${endpoint}.`,
+    "The CLI cannot solve the JavaScript challenge, so this is a gateway/WAF config issue, not a model issue.",
+    "Fix: disable Managed Challenge/Bot Fight for this Worker API route, or use an unchallenged workers.dev/API URL with `/provider cloudflare <url>`.",
+  ].join(" ")
+}
+
+export function isCloudflareChallengeText(text) {
+  return /<title>\s*Just a moment|cf_chl_|challenge-platform|Enable JavaScript and cookies/i.test(String(text || ""))
+}
+
+function providerJsonError(data, context = {}) {
+  const message = extractProviderErrorMessage(data)
+  if (!message) return null
+  const error = new Error(`${providerInfo(context.provider).title} error: ${message}`)
+  error.status = Number(data.status || data.statusCode || data.code || 0)
+  error.retryModels = isRetryableProviderFailure(error.status, message)
+  return error
+}
+
+function extractProviderErrorMessage(data) {
+  if (!data || typeof data !== "object") return ""
+  if (data.ok === false || data.success === false || data.error || data.errors?.length) {
+    return normalizeProviderContent(data.error?.message)
+      || normalizeProviderContent(data.error)
+      || normalizeProviderContent(data.message)
+      || normalizeProviderContent(data.errors)
+      || normalizeProviderContent(data.messages)
+      || "provider returned an error"
+  }
+  return ""
+}
+
+function isRetryableProviderFailure(status, message) {
+  const code = Number(status || 0)
+  if ([408, 409, 410, 422, 423, 424, 429, 500, 502, 503, 504].includes(code)) return true
+  return /\b(model|route|capacity|overloaded|temporar|timeout|timed out|rate|too many|deprecated|deprecat|unavailable|unsupported|not found)\b/i.test(String(message || ""))
 }
 
 async function stream(response, callbacks) {
@@ -214,7 +345,8 @@ async function stream(response, callbacks) {
 export function responseFromJson(data, debug = {}) {
   const choice = data.choices?.[0] || {}
   const direct =
-    normalizeProviderContent(data.response)
+    normalizeProviderContent(data)
+    || normalizeProviderContent(data.response)
     || normalizeProviderContent(data.content)
     || normalizeProviderContent(data.message)
     || normalizeProviderContent(data.output)
@@ -223,6 +355,8 @@ export function responseFromJson(data, debug = {}) {
     || normalizeProviderContent(data.result?.response)
     || normalizeProviderContent(data.result?.content)
     || normalizeProviderContent(data.result?.message)
+    || normalizeProviderContent(data.tasks?.at?.(-1)?.response)
+    || normalizeProviderContent(data.tasks?.at?.(-1)?.result)
   return {
     content:
       direct
@@ -261,8 +395,9 @@ export function normalizeProviderContent(value) {
       if (typeof item?.content === "string") return item.content
       if (typeof item?.response === "string") return item.response
       if (typeof item?.output_text === "string") return item.output_text
+      if (typeof item?.message === "string") return item.message
       if (typeof item?.message?.content === "string") return item.message.content
-      return ""
+      return normalizeProviderContent(item)
     })
     .join("")
     .trim()

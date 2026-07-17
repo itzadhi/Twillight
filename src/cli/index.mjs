@@ -587,6 +587,10 @@ async function handleInput(state, input) {
   if (input.startsWith("/provider ")) return setProvider(state, input.slice(10).trim())
   if (input === "/openrouter") return setProvider(state, "openrouter")
   if (input === "/cloudflare" || input === "/workers-ai") return setProvider(state, "cloudflare")
+  if (input.startsWith("/cloudflare ")) return setProvider(state, `cloudflare ${input.slice(12).trim()}`)
+  if (input === "/gateway" || input === "/worker") return cloudflareGatewayStatus(state)
+  if (input.startsWith("/gateway ")) return setCloudflareGateway(state, input.slice(9).trim())
+  if (input.startsWith("/worker ")) return setCloudflareGateway(state, input.slice(8).trim())
   if (input === "/groq") return setProvider(state, "groq")
   if (input === "/huggingface" || input === "/hf") return setProvider(state, "huggingface")
   if (input === "/cerebras") return setProvider(state, "cerebras")
@@ -676,11 +680,17 @@ function setPresetModel(state, model) {
 }
 
 async function setProvider(state, value) {
-  const provider = normalizeProviderName(value)
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean)
+  const first = parts.shift() || ""
+  const provider = normalizeProviderName(first) || (isHttpUrl(first) ? "cloudflare" : "")
   if (!provider) throw new Error(`Use /provider ${providerNames().join("|")}.`)
   const info = providerInfo(provider)
   state.config.provider = provider
   state.config.model = info.defaultModel || state.config.model
+  if (provider === "cloudflare") {
+    const url = parts.join(" ").trim() || (isHttpUrl(first) ? first : "")
+    if (url) state.config.cloudflareGatewayUrl = normalizeUrlInput(url)
+  }
   state.provider = createProvider(state.config, state.root, state.ui)
   state.freeModels = []
   state.saveConfig?.()
@@ -691,11 +701,48 @@ async function setProvider(state, value) {
     state.ui.row("key list env", apiKeysEnvName(provider) || "none"),
     state.ui.row("keys", String(savedApiKeyCount(state.root, provider))),
     state.ui.row("free", info.freeFriendly ? "yes" : "no"),
+    ...(provider === "cloudflare" ? [state.ui.row("gateway", state.config.cloudflareGatewayUrl || "default")] : []),
     state.ui.row("saved", ".ai\\config.yaml"),
-    state.ui.row("hint", provider === "cloudflare" ? "set TWILLIGHT_CLOUDFLARE_GATEWAY_URL for another Worker URL" : info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
+    state.ui.row("hint", provider === "cloudflare" ? "/gateway <url> or /provider cloudflare <url>" : info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
   ])
   if (!info.noAuth && !hasSavedApiKey(state.root, provider)) await saveKeyPrompt(state, provider, false)
   return true
+}
+
+function cloudflareGatewayStatus(state) {
+  state.ui.box("cloudflare gateway", [
+    state.ui.row("url", state.config.cloudflareGatewayUrl || providerInfo("cloudflare").chat),
+    state.ui.row("set", "/gateway https://your-worker.workers.dev"),
+    state.ui.row("provider", "/provider cloudflare"),
+    state.ui.row("model", "/model @cf/moonshotai/kimi-k2.7-code"),
+  ])
+  return true
+}
+
+function setCloudflareGateway(state, value) {
+  const url = normalizeUrlInput(value)
+  if (!isHttpUrl(url)) throw new Error("Use /gateway https://your-worker-url")
+  state.config.provider = "cloudflare"
+  state.config.cloudflareGatewayUrl = url
+  state.config.model = state.config.model?.startsWith("@cf/") ? state.config.model : providerInfo("cloudflare").defaultModel
+  state.provider = createProvider(state.config, state.root, state.ui)
+  state.freeModels = []
+  state.saveConfig?.()
+  state.ui.box("cloudflare gateway", [
+    state.ui.row("url", state.config.cloudflareGatewayUrl),
+    state.ui.row("provider", providerInfo(state.config.provider).title),
+    state.ui.row("model", state.config.model),
+    state.ui.row("saved", ".ai\\config.yaml"),
+  ])
+  return true
+}
+
+function normalizeUrlInput(value) {
+  return String(value || "").trim().replace(/^["']|["']$/g, "").replace(/\/+$/, "")
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(String(value || "").trim())
 }
 
 export function isLikelyModelId(value) {
@@ -729,6 +776,7 @@ function bareSlashUsage(input) {
     "/mkdir": "Use /mkdir <path>.",
     "/rm": "Use /rm <path>.",
     "/run": "Use /run <command>.",
+    "/gateway": "Use /gateway https://your-worker-url.",
     "/use": "Run /models first, then /use <number>.",
     "/tool-preset": "Use /tool-preset all|read|safe|edit|code|autonomous.",
   }
@@ -913,6 +961,7 @@ function helpText() {
     "- `/use <number>` switch by model list number",
     "- `/model provider/model:id` switch by exact model id",
     "- `/provider openrouter|cloudflare|groq|huggingface|cerebras|sambanova|github|ollama|openai` switch provider",
+    "- `/gateway https://your-worker-url` set Cloudflare Worker AI gateway",
     "- `/key [provider]` save one API key once",
     "- `/key-add [provider]` add another key for rotation",
     "- `/keys` show saved key counts",
@@ -1068,6 +1117,17 @@ function friendlyError(error) {
       `Details: ${raw}`,
     ].join("\n")
   }
+  if (/cloudflare.*browser challenge|cli cannot solve the javascript challenge|gateway\/waf config/i.test(raw)) {
+    return [
+      "Cloudflare is challenging the Worker URL, so Twillight is receiving HTML instead of AI JSON.",
+      "",
+      "Fix one of these:",
+      "- In Cloudflare, skip Managed Challenge/Bot Fight/WAF challenge for the Worker API route.",
+      "- Or use an unchallenged workers.dev/API URL with `/gateway https://your-worker.workers.dev`.",
+      "",
+      `Details: ${raw}`,
+    ].join("\n")
+  }
   if (/unknown command/i.test(raw)) return raw
   return raw
 }
@@ -1197,6 +1257,10 @@ export function closestCommand(input) {
     "/dragom": "/dragon",
     "/dragn": "/dragon",
     "/dragoon": "/dragon",
+    "/providr": "/provider",
+    "/providerss": "/providers",
+    "/workr": "/worker",
+    "/gate": "/gateway",
     "/model": "/models",
     "/mp": "/mcp",
   }
@@ -1204,7 +1268,7 @@ export function closestCommand(input) {
   const commands = [
     "/actions", "/approve", "/build-mode", "/cerebras", "/changes", "/clear", "/cloudflare", "/cmd", "/components", "/config",
     "/copy", "/diff", "/doctor", "/dragon", "/env", "/exit", "/files", "/full-access", "/git-diff", "/git-status",
-    "/groq", "/help", "/huggingface", "/image", "/key", "/key-add", "/keys", "/mcp", "/memory", "/mkdir",
+    "/gateway", "/groq", "/help", "/huggingface", "/image", "/key", "/key-add", "/keys", "/mcp", "/memory", "/mkdir",
     "/model", "/models", "/ollama", "/openai", "/openrouter", "/palette", "/permission", "/permissions", "/provider",
     "/pet", "/plan-mode", "/providers", "/read", "/read-only", "/reject", "/remember", "/rollback", "/run",
     "/sambanova", "/skills", "/standard", "/status", "/tasks", "/tool", "/tool-preset", "/tools", "/ui",

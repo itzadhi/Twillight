@@ -194,7 +194,8 @@ async function chatWithFallbacks(state, messages, callbacks) {
     } catch (error) {
       lastResponse = { content: "", usage: {}, debug: { attemptedModel: model, originalModel, error: error.message || String(error), status: error.status || 0 } }
       state.ui.debug?.(`model attempt failed model=${model} status=${error.status || 0} error=${error.message || String(error)}`)
-      if ([401, 402, 403, 429].includes(Number(error.status || 0))) continue
+      if (shouldStopFallbacks(error)) throw error
+      if (shouldTryFallbackModel(error)) continue
       throw error
     }
     response.debug = { ...(response.debug || {}), attemptedModel: model, originalModel }
@@ -216,6 +217,16 @@ async function chatWithFallbacks(state, messages, callbacks) {
   return lastResponse || { content: "", usage: {}, debug: { attemptedModel: originalModel } }
 }
 
+function shouldStopFallbacks(error) {
+  if (error?.providerBlocked || error?.nonRetryable) return true
+  return [401, 402, 403].includes(Number(error?.status || 0))
+}
+
+function shouldTryFallbackModel(error) {
+  if (error?.retryModels) return true
+  return [408, 409, 410, 422, 423, 424, 429, 500, 502, 503, 504].includes(Number(error?.status || 0))
+}
+
 function fallbackModels(state) {
   const provider = state.provider?.provider || state.config.provider
   const info = providerInfo(provider)
@@ -233,6 +244,8 @@ function uniqueModels(models) {
 }
 
 function emptyResponseMessage(state) {
+  const error = state.lastProviderDebug?.error
+  if (error) return `The provider did not return usable content. ${error}`
   const retry = state.lastProviderDebug?.retryAfterEmptyStream ? " I retried without streaming too." : ""
   const finish = state.lastProviderDebug?.finishReason ? ` Finish: ${state.lastProviderDebug.finishReason}.` : ""
   const attempted = state.lastProviderDebug?.attemptedModel ? ` Last tried: ${state.lastProviderDebug.attemptedModel}.` : ""

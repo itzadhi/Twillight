@@ -31,6 +31,8 @@ Use it:
 
 ```text
 /provider cloudflare
+/provider cloudflare https://your-worker-url
+/gateway https://your-worker-url
 /models
 /model @cf/moonshotai/kimi-k2.7-code
 ```
@@ -44,7 +46,27 @@ set TWILLIGHT_MODEL=@cf/moonshotai/kimi-k2.7-code
 twillight
 ```
 
+When you set a root gateway URL, Twillight automatically calls `/v1/chat/completions` for chat and `/models` for model listing. You can also pass either exact endpoint and Twillight will derive the other one.
+
 The Worker route must be API-accessible. If Cloudflare returns a browser challenge page, add a WAF skip rule for the Worker route or disable managed challenges for that hostname/path.
+
+Important: a browser can pass Cloudflare's JavaScript challenge, but Twillight is a Node CLI and cannot. If Twillight reports a Cloudflare browser challenge, the model is not the problem. Fix the route protection or point Twillight to an unchallenged Worker URL:
+
+```text
+/gateway https://your-worker-name.your-subdomain.workers.dev
+```
+
+Private gateways are supported too. If your Worker intentionally requires a shared token, save it once:
+
+```text
+/key cloudflare
+```
+
+or set:
+
+```cmd
+set TWILLIGHT_CLOUDFLARE_GATEWAY_KEY=your_gateway_token
+```
 
 ## Paid/Compatibility Provider
 
@@ -65,6 +87,7 @@ openai
 /provider github
 /provider ollama
 /provider openai
+/gateway https://your-worker-url
 /models
 /use 1
 /key groq
@@ -82,6 +105,7 @@ SAMBANOVA_API_KEY / SAMBANOVA_API_KEYS
 GITHUB_TOKEN / GITHUB_TOKENS
 OPENAI_API_KEY / OPENAI_API_KEYS
 TWILLIGHT_CLOUDFLARE_GATEWAY_URL
+TWILLIGHT_CLOUDFLARE_GATEWAY_KEY / TWILLIGHT_CLOUDFLARE_GATEWAY_KEYS
 ```
 
 Multiple keys can be separated by commas, semicolons, or new lines.

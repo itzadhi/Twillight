@@ -42,6 +42,9 @@ copy README.md to backup folder
 /model cohere/north-mini-code:free
 /provider openrouter
 /provider groq
+/provider cloudflare https://your-worker-url
+/gateway https://your-worker-url
+/key cloudflare
 /provider huggingface
 /provider cerebras
 /provider sambanova

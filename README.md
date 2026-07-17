@@ -68,6 +68,8 @@ Use:
 ```text
 /providers
 /provider cloudflare
+/provider cloudflare https://your-worker-url
+/gateway https://your-worker-url
 /provider groq
 /provider ollama
 ```
@@ -80,6 +82,25 @@ set TWILLIGHT_CLOUDFLARE_GATEWAY_URL=https://ai.itzadhi.in
 set TWILLIGHT_MODEL=@cf/moonshotai/kimi-k2.7-code
 twillight
 ```
+
+Inside Twillight you can do the same without restarting:
+
+```text
+/provider cloudflare https://your-worker-url
+/model @cf/moonshotai/kimi-k2.7-code
+```
+
+If the browser can open your Worker but Twillight says Cloudflare is blocking it with a browser challenge, the Worker route is protected by a WAF/Managed Challenge rule. Use a plain `workers.dev` API route or add a Cloudflare skip rule for the Worker API path.
+
+For a root gateway such as `https://ai.itzadhi.in`, Twillight automatically uses `/v1/chat/completions` for chat and `/models` for the model list.
+
+If your Worker is private and returns `401 Unauthorized`, save the gateway token once:
+
+```text
+/key cloudflare
+```
+
+Twillight sends that token as `Authorization: Bearer`, `X-Twillight-Gateway-Key`, and `X-API-Key` to your Worker.
 
 Set your key locally:
 
@@ -154,6 +175,8 @@ The folder you launch `twillight` from becomes the active workspace sandbox. Ses
 /do 3
 /diff
 /models
+/provider cloudflare https://your-worker-url
+/gateway https://your-worker-url
 /use 2
 /plan-mode
 /build-mode

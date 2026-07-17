@@ -49,12 +49,12 @@ export async function getApiKey(root, provider, ui) {
 
 export async function getApiKeys(root, provider, ui) {
   const envName = apiKeyEnvName(provider)
-  if (!envName) return [""]
   const fromEnv = readEnvKeys(provider)
   if (fromEnv.length) return fromEnv
   const credentials = readCredentials(root)
   const saved = savedKeys(credentials, provider)
   if (saved.length) return saved
+  if (!envName || providerInfo(provider).noAuth) return [""]
   if (!process.stdin.isTTY) throw new Error(`${envName} is missing. Run twillight interactively once to save it.`)
   const value = await promptSecret(`${envName}: `)
   if (!value) throw new Error(`${envName} was not provided.`)
@@ -133,6 +133,7 @@ function normalizeCredentials(credentials) {
 }
 
 function credentialAliases(canonical) {
+  if (canonical === "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY") return ["TWILLIGHT_CLOUDFLARE_GATEWAY_KEY", "TWILLIGHT_CLOUDFLARE_KEY", "CLOUDFLARE_GATEWAY_KEY", "cloudflareGatewayKey"]
   if (canonical === "OPENAI_API_KEY") return ["OPENAI_API_KEY", "OPENAI_KEY", "openaiApiKey", "openai_api_key"]
   if (canonical === "GROQ_API_KEY") return ["GROQ_API_KEY", "GROQ_KEY", "GROQ_TOKEN", "GROQ_API_TOKEN", "groqApiKey", "groq_api_key"]
   if (canonical === "HUGGINGFACE_API_KEY") return ["HUGGINGFACE_API_KEY", "HF_TOKEN", "HF_API_KEY", "HUGGINGFACE_TOKEN", "huggingfaceApiKey"]

@@ -16,7 +16,7 @@ import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
 import { extractCodeBlocks } from "../src/ui/dashboard.mjs"
 import { closestCommand, isLikelyModelId, mouseScrollDelta } from "../src/cli/index.mjs"
-import { normalizeProviderContent, responseFromJson } from "../src/providers/openrouter-provider.mjs"
+import { cloudflareEndpoint, isCloudflareChallengeText, normalizeProviderContent, providerHttpError, responseFromJson } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
 
@@ -58,7 +58,13 @@ assert.equal(normalizeProviderName("hf"), "huggingface")
 assert.equal(providerInfo("ollama").noAuth, true)
 assert.equal(providerInfo("cloudflare").noAuth, true)
 assert.equal(hasSavedApiKey(root, "cloudflare"), true)
+assert.equal(apiKeyEnvName("cloudflare"), "TWILLIGHT_CLOUDFLARE_GATEWAY_KEY")
+assert.deepEqual(await getApiKeys(root, "cloudflare", state.ui), [""])
+saveApiKey(root, "cloudflare", "cf-gateway-key")
+assert.deepEqual(await getApiKeys(root, "cloudflare", state.ui), ["cf-gateway-key"])
+assert.equal(savedApiKeyCount(root, "cloudflare"), 1)
 assert.equal(providerInfo("cloudflare").defaultModel, "@cf/moonshotai/kimi-k2.7-code")
+assert.equal(providerInfo("cloudflare").fallbackModels.includes("@cf/zai-org/glm-4.7-flash"), true)
 assert.equal(providerNames().includes("sambanova"), true)
 assert.equal(providerNames().includes("cloudflare"), true)
 assert.equal(skillList().some((skill) => skill.id === "plan-first-build"), true)
@@ -143,6 +149,8 @@ assert.equal(isLikelyModelId("@cf/moonshotai/kimi-k2.7-code"), true)
 assert.equal(isLikelyModelId("llama-3.1-8b-instant"), true)
 assert.equal(closestCommand("/dragom"), "/dragon")
 assert.equal(closestCommand("/cmds"), "/cmd")
+assert.equal(closestCommand("/providr"), "/provider")
+assert.equal(closestCommand("/gate"), "/gateway")
 assert.equal(closestCommand("/provider"), "")
 assert.equal(polishAssistantText("Theusertypedwhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.").includes(". This"), true)
 assert.equal(polishAssistantText("Theuserasks\"yourmodelname\".ThesystemsaysweareTwillight.Ishouldanswer.").includes("The user asks"), true)
@@ -158,8 +166,25 @@ assert.equal(blocks[1].index, 2)
 assert.equal(normalizeProviderContent(" hello "), "hello")
 assert.equal(normalizeProviderContent([{ type: "text", text: "hello" }, { content: " world" }]), "hello world")
 assert.equal(normalizeProviderContent([{ type: "image_url", image_url: {} }]), "")
+assert.equal(normalizeProviderContent([{ message: "nested error" }]), "nested error")
 assert.equal(normalizeProviderContent({ response: { text: "nested worker answer" } }), "nested worker answer")
 assert.equal(responseFromJson({ result: { response: { content: "cf answer" } } }).content, "cf answer")
+assert.equal(responseFromJson({ tasks: [{ response: { response: "task answer" } }] }).content, "task answer")
+assert.equal(responseFromJson([{ response: "array task answer" }]).content, "array task answer")
+assert.equal(cloudflareEndpoint("https://ai.itzadhi.in", "chat"), "https://ai.itzadhi.in/v1/chat/completions")
+assert.equal(cloudflareEndpoint("https://ai.itzadhi.in", "models"), "https://ai.itzadhi.in/models")
+assert.equal(cloudflareEndpoint("https://ai.itzadhi.in/chat", "models"), "https://ai.itzadhi.in/models")
+assert.equal(cloudflareEndpoint("https://ai.itzadhi.in/models", "chat"), "https://ai.itzadhi.in/v1/chat/completions")
+const challengeHtml = "<!doctype html><title>Just a moment...</title><span>Enable JavaScript and cookies to continue</span>"
+assert.equal(isCloudflareChallengeText(challengeHtml), true)
+const challengeError = await providerHttpError(new Response(challengeHtml, { status: 403, statusText: "Forbidden" }), "", { provider: "cloudflare", endpoint: "https://ai.itzadhi.in" })
+assert.equal(challengeError.providerBlocked, true)
+assert.equal(challengeError.retryModels, false)
+assert.equal(challengeError.message.includes("browser challenge"), true)
+const authError = await providerHttpError(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, statusText: "Unauthorized" }), "", { provider: "cloudflare", endpoint: "https://ai.itzadhi.in/v1/chat/completions" })
+assert.equal(authError.nonRetryable, true)
+assert.equal(authError.retryModels, false)
+assert.equal(authError.message.includes("/key cloudflare"), true)
 
 rmSync(root, { recursive: true, force: true })
 console.log("tests ok")
