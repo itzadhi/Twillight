@@ -10,11 +10,12 @@ import { assertPermission } from "../src/security/permissions.mjs"
 import { createRegistry } from "../src/tools/registry.mjs"
 import { createRenderer } from "../src/utils/terminal.mjs"
 import { createTaskStore, needsApproval, planLocalWorkflow } from "../src/agent/workflow.mjs"
+import { polishAssistantText } from "../src/agent/agent-loop.mjs"
 import { canUseNativeRenderer, detectOpenTui } from "../src/ui/opentui-adapter.mjs"
 import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
 import { extractCodeBlocks } from "../src/ui/dashboard.mjs"
-import { isLikelyModelId, mouseScrollDelta } from "../src/cli/index.mjs"
+import { closestCommand, isLikelyModelId, mouseScrollDelta } from "../src/cli/index.mjs"
 import { normalizeProviderContent } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
@@ -128,6 +129,9 @@ assert.equal(mouseScrollDelta("\x1b[97;10;10M"), -3)
 assert.equal(mouseScrollDelta(Buffer.from([0x1b, 0x5b, 0x4d, 96, 40, 40])), 3)
 assert.equal(mouseScrollDelta(Buffer.from([0x1b, 0x5b, 0x4d, 97, 40, 40])), -3)
 assert.equal(isLikelyModelId("cohere/north-mini-code:free"), true)
+assert.equal(closestCommand("/dragom"), "/dragon")
+assert.equal(closestCommand("/cmds"), "/cmd")
+assert.equal(polishAssistantText("Theusertypedwhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.").includes(". This"), true)
 assert.equal(isLikelyModelId("19"), false)
 const blocks = extractCodeBlocks("```js\nconsole.log('hi')\n```\ntext\n```py\nprint('yo')\n```")
 assert.equal(blocks.length, 2)

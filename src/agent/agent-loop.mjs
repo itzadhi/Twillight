@@ -34,13 +34,31 @@ export async function askModel(state, task) {
   })
   state.lastProviderDebug = response.debug || {}
   state.ui.debug?.(`provider response provider=${state.provider.provider} model=${state.config.model} empty=${!String(response.content || "").trim()} debug=${JSON.stringify(state.lastProviderDebug).slice(0, 600)}`)
-  const content = String(response.content || "").trim() || emptyResponseMessage(state)
+  const content = polishAssistantText(String(response.content || "").trim() || emptyResponseMessage(state))
   state.messages.push({ role: "user", content: task }, { role: "assistant", content })
   state.pendingImage = ""
   state.tokens += Number(response.usage.total_tokens ?? response.usage.totalTokens ?? 0)
   state.reasoningTokens += Number(response.usage.reasoning_tokens ?? response.usage.reasoningTokens ?? 0)
   state.turns += 1
   return content
+}
+
+export function polishAssistantText(value) {
+  let text = String(value || "").trim()
+  if (!text) return text
+  const whitespace = (text.match(/\s/g) || []).length
+  const camelJams = (text.match(/[a-z][A-Z]/g) || []).length
+  const punctuationJams = (text.match(/[.!?;:][A-Za-z0-9"']/g) || []).length
+  const looksCompressed = text.length > 80 && whitespace < text.length / 28 && (camelJams + punctuationJams) > 3
+  if (!looksCompressed) return text
+  text = text
+    .replace(/([.!?;:])(?=[A-Za-z0-9"'])/g, "$1 ")
+    .replace(/([a-z])(?=[A-Z][a-z])/g, "$1 ")
+    .replace(/([a-zA-Z])(?=\d)/g, "$1 ")
+    .replace(/(\d)(?=[A-Za-z])/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text
 }
 
 async function chatWithFallbacks(state, messages, callbacks) {

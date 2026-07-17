@@ -502,6 +502,7 @@ async function handleInput(state, input) {
   if (input === "/skills") return skillsStatus(state)
   if (input === "/pet") return petStatus(state)
   if (input.startsWith("/pet ")) return setPet(state, input.slice(5).trim())
+  if (["/dragom", "/dragn", "/dragoon"].includes(input)) return setPet(state, "dragon")
   if (input === "/dragon") return setPet(state, "dragon")
   if (input === "/key" || input.startsWith("/key ")) return saveKeyPrompt(state, input.slice(4).trim(), false)
   if (input.startsWith("/key-add ")) return saveKeyPrompt(state, input.slice(9).trim(), true)
@@ -730,8 +731,16 @@ function implementationPlan(input) {
 
 function casualResponse(input) {
   const text = String(input || "").trim().toLowerCase()
+  const compact = text.replace(/[^a-z]/g, "")
   if (/^(hi|hello|hey|yo|wsp|sup|what'?s up|wassup|whats up)(\s+(man|bro|dude|mate|adhi|there))*[!.? ]*$/.test(text)) {
     return "Hey, I'm here. What are we building or fixing?"
+  }
+  if (/^whatcan(you)?d[op]/.test(compact) || /^what(can|could)(you)?do$/.test(compact)) {
+    return [
+      "I can inspect and edit files, create scripts, run safe commands, debug errors, review diffs, manage models/providers, attach images, and use local tools in this folder.",
+      "",
+      "For simple tasks I act directly. For bigger builds I show a plan first, then execute step by step after you accept.",
+    ].join("\n")
   }
   if (/^(yes|yeah|yep|ok|okay|no|nah|nope|sure|cool|nice|fine)[!.? ]*$/.test(text)) {
     return "Got it. Send me the actual thing you want me to build, fix, inspect, or run."
@@ -1039,14 +1048,55 @@ function unknown(state, input) {
     : `Unknown command: ${input}\n\nPress ctrl+p or use \`/cmd\` for commands.`)
 }
 
-function closestCommand(input) {
+export function closestCommand(input) {
+  const value = String(input || "").trim().toLowerCase()
+  const head = value.split(/\s+/)[0]
   const aliases = {
     "/cmds": "/cmd",
+    "/commands": "/cmd",
+    "/comands": "/cmd",
     "/command": "/cmd",
+    "/dragom": "/dragon",
+    "/dragn": "/dragon",
+    "/dragoon": "/dragon",
     "/model": "/models",
     "/mp": "/mcp",
   }
-  return aliases[String(input || "").trim().toLowerCase()] || ""
+  if (aliases[value] || aliases[head]) return aliases[value] || aliases[head]
+  const commands = [
+    "/actions", "/approve", "/build-mode", "/cerebras", "/changes", "/clear", "/cmd", "/components", "/config",
+    "/copy", "/diff", "/doctor", "/dragon", "/env", "/exit", "/files", "/full-access", "/git-diff", "/git-status",
+    "/groq", "/help", "/huggingface", "/image", "/key", "/key-add", "/keys", "/mcp", "/memory", "/mkdir",
+    "/model", "/models", "/ollama", "/openai", "/openrouter", "/palette", "/permission", "/permissions",
+    "/pet", "/plan-mode", "/providers", "/read", "/read-only", "/reject", "/remember", "/rollback", "/run",
+    "/sambanova", "/skills", "/standard", "/status", "/tasks", "/tool", "/tool-preset", "/tools", "/ui",
+    "/uncensored", "/undo", "/use", "/workspace", "/write",
+  ]
+  let best = { command: "", distance: Infinity }
+  for (const command of commands) {
+    const distance = editDistance(head, command)
+    if (distance < best.distance) best = { command, distance }
+  }
+  const tolerance = Math.max(1, Math.floor((best.command.length || 1) * 0.25))
+  return best.distance <= tolerance ? best.command : ""
+}
+
+function editDistance(a, b) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i += 1) {
+    let last = i - 1
+    previous[0] = i
+    for (let j = 1; j <= b.length; j += 1) {
+      const old = previous[j]
+      previous[j] = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        last + (a[i - 1] === b[j - 1] ? 0 : 1),
+      )
+      last = old
+    }
+  }
+  return previous[b.length]
 }
 
 function elapsed(started) {

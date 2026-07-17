@@ -433,17 +433,29 @@ function elapsed(started = Date.now()) {
 }
 
 function wrapPlain(value, width) {
+  return wrapTextHard(value, width)
+}
+
+function wrapTextHard(value, width) {
+  const max = Math.max(1, Number(width) || 1)
   const words = clean(value).split(/\s+/)
   const lines = []
   let line = ""
   for (const word of words) {
     if (!word) continue
-    const next = line ? `${line} ${word}` : word
-    if (next.length > width) {
-      if (line) lines.push(line)
-      line = word
-    } else {
-      line = next
+    const pieces = word.length > max ? chunkPlain(word, max) : [word]
+    for (const piece of pieces) {
+      const next = line ? `${line} ${piece}` : piece
+      if (next.length > max) {
+        if (line) lines.push(line)
+        line = piece
+      } else {
+        line = next
+      }
+      if (line.length >= max) {
+        lines.push(line)
+        line = ""
+      }
     }
   }
   if (line) lines.push(line)
@@ -546,20 +558,7 @@ function formatInline(value) {
 function wrapStyled(value, width, indent) {
   const plain = clean(value)
   if (plain.length <= width) return [value]
-  const words = plain.split(/\s+/)
-  const rows = []
-  let row = ""
-  for (const word of words) {
-    const next = row ? `${row} ${word}` : word
-    if (next.length > width) {
-      if (row) rows.push(row)
-      row = word
-    } else {
-      row = next
-    }
-  }
-  if (row) rows.push(row)
-  return rows.map((line, index) => `${index ? indent : ""}${rgb(theme.text, line)}`)
+  return wrapTextHard(plain, width).map((line, index) => `${index ? indent : ""}${rgb(theme.text, line)}`)
 }
 
 function codeBlock(lang, lines, width, index = 1) {
