@@ -19,6 +19,7 @@ export function loadConfig(argv) {
     developerId: process.env.TWILLIGHT_CREATOR,
     uncensoredModel: process.env.TWILLIGHT_UNCENSORED_MODEL,
     fallbackModels: process.env.TWILLIGHT_FALLBACK_MODELS,
+    cloudflareGatewayUrl: process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL,
     maxTokens: number(process.env.TWILLIGHT_MAX_TOKENS),
     requestTimeoutMs: number(process.env.TWILLIGHT_REQUEST_TIMEOUT_MS),
     queueDelayMs: number(process.env.TWILLIGHT_QUEUE_DELAY_MS),

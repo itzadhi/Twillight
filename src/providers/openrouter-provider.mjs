@@ -10,7 +10,12 @@ export function createProvider(config, root, ui) {
     cachedApiKeys = await getApiKeys(root, provider, ui)
     return cachedApiKeys
   }
-  const endpoint = { chat: info.chat, models: info.models }
+  const endpoint = provider === "cloudflare"
+    ? {
+        chat: config.cloudflareGatewayUrl || process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL || info.chat,
+        models: config.cloudflareGatewayUrl || process.env.TWILLIGHT_CLOUDFLARE_GATEWAY_URL || info.models,
+      }
+    : { chat: info.chat, models: info.models }
   return {
     provider,
     model: config.model,
@@ -26,6 +31,7 @@ export function createProvider(config, root, ui) {
       })
     },
     async chat(messages, callbacks = {}) {
+      if (provider === "cloudflare") return cloudflareChat(endpoint.chat, config, messages)
       return withKeys(await apiKeys(), async (key) => {
         const body = {
           model: config.model,
@@ -57,6 +63,25 @@ export function createProvider(config, root, ui) {
       })
     },
   }
+}
+
+async function cloudflareChat(url, config, messages) {
+  const body = {
+    model: config.model,
+    messages,
+    temperature: config.temperature,
+    max_tokens: Number(config.maxTokens || 2048),
+    maxTokens: Number(config.maxTokens || 2048),
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...providerHeaders("cloudflare") },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Number(config.requestTimeoutMs || 120000)),
+  })
+  if (!response.ok) throw await providerHttpError(response, "")
+  const data = await response.json()
+  return responseFromJson(data, { source: "cloudflare-worker" })
 }
 
 async function retryWithoutStreaming(url, key, provider, config, body, previousDebug) {
@@ -106,6 +131,12 @@ function isRetryableKeyError(error) {
 }
 
 function normalizeModels(provider, data) {
+  if (provider === "cloudflare") {
+    return (data.models || data.data || []).map((model) => ({
+      id: typeof model === "string" ? model : model.id,
+      context: typeof model === "string" ? "" : model.context || model.context_length || model.contextLength || "",
+    })).filter((model) => model.id)
+  }
   const models = data.data || []
   if (provider === "openrouter") {
     return models
@@ -181,9 +212,16 @@ async function stream(response, callbacks) {
 
 function responseFromJson(data, debug = {}) {
   const choice = data.choices?.[0] || {}
+  const direct =
+    normalizeProviderContent(data.response)
+    || normalizeProviderContent(data.content)
+    || normalizeProviderContent(data.message)
+    || normalizeProviderContent(data.result?.response)
+    || normalizeProviderContent(data.result?.content)
   return {
     content:
-      normalizeProviderContent(choice.message?.content)
+      direct
+      || normalizeProviderContent(choice.message?.content)
       || normalizeProviderContent(choice.message?.reasoning_content)
       || normalizeProviderContent(choice.message?.reasoning)
       || normalizeProviderContent(choice.text)
@@ -192,6 +230,7 @@ function responseFromJson(data, debug = {}) {
     debug: {
       ...debug,
       finishReason: choice.finish_reason || choice.finishReason || "",
+      dataKeys: Object.keys(data || {}),
       choiceKeys: Object.keys(choice),
       messageKeys: choice.message ? Object.keys(choice.message) : [],
     },

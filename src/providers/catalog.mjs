@@ -10,6 +10,18 @@ export const providerCatalog = Object.freeze({
     chat: "https://openrouter.ai/api/v1/chat/completions",
     models: "https://openrouter.ai/api/v1/models",
   },
+  cloudflare: {
+    title: "Cloudflare Workers AI",
+    aliases: ["cloudflare", "workers", "cf", "cf-ai"],
+    keyEnv: "",
+    keysEnv: "",
+    defaultModel: "@cf/moonshotai/kimi-k2.7-code",
+    freeFriendly: true,
+    noCardNote: "Uses your own Cloudflare Worker AI gateway. No client API key is required when the Worker is public.",
+    chat: "https://ai.itzadhi.in",
+    models: "https://ai.itzadhi.in",
+    noAuth: true,
+  },
   groq: {
     title: "Groq",
     aliases: ["groq"],

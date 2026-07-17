@@ -60,15 +60,25 @@ OpenRouter / cohere/north-mini-code:free
 Free-friendly providers:
 
 ```text
-OpenRouter, Groq, Hugging Face, Cerebras, SambaNova, GitHub Models, Ollama
+OpenRouter, Cloudflare Workers AI, Groq, Hugging Face, Cerebras, SambaNova, GitHub Models, Ollama
 ```
 
 Use:
 
 ```text
 /providers
+/provider cloudflare
 /provider groq
 /provider ollama
+```
+
+Cloudflare Worker gateway:
+
+```bat
+set TWILLIGHT_PROVIDER=cloudflare
+set TWILLIGHT_CLOUDFLARE_GATEWAY_URL=https://ai.itzadhi.in
+set TWILLIGHT_MODEL=@cf/moonshotai/kimi-k2.7-code
+twillight
 ```
 
 Set your key locally:

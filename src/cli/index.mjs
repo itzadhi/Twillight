@@ -508,6 +508,7 @@ async function handleInput(state, input) {
   if (input.startsWith("/key-add ")) return saveKeyPrompt(state, input.slice(9).trim(), true)
   if (input.startsWith("/provider ")) return setProvider(state, input.slice(10).trim())
   if (input === "/openrouter") return setProvider(state, "openrouter")
+  if (input === "/cloudflare" || input === "/workers-ai") return setProvider(state, "cloudflare")
   if (input === "/groq") return setProvider(state, "groq")
   if (input === "/huggingface" || input === "/hf") return setProvider(state, "huggingface")
   if (input === "/cerebras") return setProvider(state, "cerebras")
@@ -604,7 +605,7 @@ async function setProvider(state, value) {
     state.ui.row("key list env", apiKeysEnvName(provider) || "none"),
     state.ui.row("keys", String(savedApiKeyCount(state.root, provider))),
     state.ui.row("free", info.freeFriendly ? "yes" : "no"),
-    state.ui.row("hint", info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
+    state.ui.row("hint", provider === "cloudflare" ? "set TWILLIGHT_CLOUDFLARE_GATEWAY_URL for another Worker URL" : info.noAuth || hasSavedApiKey(state.root, provider) ? "/models to list available models" : `/key ${provider} to save once`),
   ])
   if (!info.noAuth && !hasSavedApiKey(state.root, provider)) await saveKeyPrompt(state, provider, false)
   return true
@@ -783,7 +784,7 @@ function helpText() {
     "- `/uncensored` switch to Venice Uncensored Dolphin Mistral 24B free",
     "- `/use <number>` switch by model list number",
     "- `/model provider/model:id` switch by exact model id",
-    "- `/provider openrouter|groq|huggingface|cerebras|sambanova|github|ollama|openai` switch provider",
+    "- `/provider openrouter|cloudflare|groq|huggingface|cerebras|sambanova|github|ollama|openai` switch provider",
     "- `/key [provider]` save one API key once",
     "- `/key-add [provider]` add another key for rotation",
     "- `/keys` show saved key counts",
@@ -1064,7 +1065,7 @@ export function closestCommand(input) {
   }
   if (aliases[value] || aliases[head]) return aliases[value] || aliases[head]
   const commands = [
-    "/actions", "/approve", "/build-mode", "/cerebras", "/changes", "/clear", "/cmd", "/components", "/config",
+    "/actions", "/approve", "/build-mode", "/cerebras", "/changes", "/clear", "/cloudflare", "/cmd", "/components", "/config",
     "/copy", "/diff", "/doctor", "/dragon", "/env", "/exit", "/files", "/full-access", "/git-diff", "/git-status",
     "/groq", "/help", "/huggingface", "/image", "/key", "/key-add", "/keys", "/mcp", "/memory", "/mkdir",
     "/model", "/models", "/ollama", "/openai", "/openrouter", "/palette", "/permission", "/permissions",

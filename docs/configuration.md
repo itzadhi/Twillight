@@ -40,6 +40,7 @@ TWILLIGHT_DEV
 TWILLIGHT_CREATOR
 TWILLIGHT_UNCENSORED_MODEL
 TWILLIGHT_FALLBACK_MODELS
+TWILLIGHT_CLOUDFLARE_GATEWAY_URL
 TWILLIGHT_MAX_TOKENS
 TWILLIGHT_REQUEST_TIMEOUT_MS
 TWILLIGHT_QUEUE_DELAY_MS
@@ -69,6 +70,8 @@ OPENAI_API_KEYS
 Multiple keys can be separated by commas, semicolons, or new lines.
 
 Ollama is local and does not need an API key.
+
+Cloudflare Workers AI uses `TWILLIGHT_CLOUDFLARE_GATEWAY_URL` and does not require a client key when your Worker gateway is public.
 
 ## Developer Identity
 
