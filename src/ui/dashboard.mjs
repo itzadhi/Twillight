@@ -358,7 +358,7 @@ function petPanelLines(state, width) {
   const trait = access.allowed ? pet.mood || pet.role : "developer only"
   return [
     label("Companion"),
-    kv("name", truncate(pet.title, width - 10)),
+    kv("name", truncate(access.activeName === "dragon" ? "Dragon" : pet.title, width - 10)),
     kv("mood", truncate(mood, width - 10)),
     ...art,
     kv("spark", truncate(trait, width - 10)),
