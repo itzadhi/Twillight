@@ -14,7 +14,7 @@ import { normalizeProviderName, providerInfo, providerNames } from "../providers
 import { normalizePetName, petAccess, petNames } from "../pets/catalog.mjs"
 import { skillList } from "../skills/catalog.mjs"
 import { createSessionStore } from "../storage/sessions.mjs"
-import { createRegistry } from "../tools/registry.mjs"
+import { ALL_TOOLS, createRegistry, enabledToolNames, isAllToolsEnabled, normalizeEnabledTools } from "../tools/registry.mjs"
 import { renderCommandPalette, renderChatTurn, renderDashboard, renderInputBoundaryClose, renderInputPrompt, renderPalette, renderUpdatePrompt, scrollConversation, shouldRedrawInputPrompt } from "../ui/dashboard.mjs"
 import { detectOpenTui } from "../ui/opentui-adapter.mjs"
 import { summarizeOpenTuiEnv } from "../ui/opentui-env.mjs"
@@ -81,6 +81,7 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 function createState(root, config, ui, session) {
+  const registry = createRegistry()
   return {
     id: session.id || randomUUID().slice(0, 8),
     root,
@@ -95,7 +96,7 @@ function createState(root, config, ui, session) {
     saveConfig() {
       persistProjectConfig(this)
     },
-    registry: createRegistry(),
+    registry,
     taskStore: createTaskStore(root),
     messages: session.messages || [],
     changes: session.changes || [],
@@ -107,7 +108,7 @@ function createState(root, config, ui, session) {
     uiEngine: { available: false, nativeRenderer: false, note: "loading", exports: [] },
     pendingImage: "",
     freeModels: [],
-    enabledTools: config.enabledTools ? String(config.enabledTools).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    enabledTools: normalizeEnabledTools(config.enabledTools, registry.tools),
     inputQueue: [],
     pendingImplementationPlan: null,
     processing: false,
@@ -174,7 +175,7 @@ function persistProjectConfig(state) {
     `streaming: ${state.config.streaming ? "true" : "false"}`,
     `pet: ${state.config.pet || "sprite"}`,
   ]
-  if (state.enabledTools?.length) lines.push(`enabledTools: ${state.enabledTools.join(",")}`)
+  lines.push(`enabledTools: ${isAllToolsEnabled(state.enabledTools) ? ALL_TOOLS : state.enabledTools.join(",")}`)
   if (state.config.cloudflareGatewayUrl) lines.push(`cloudflareGatewayUrl: ${state.config.cloudflareGatewayUrl}`)
   writeFileSync(file, `${lines.join("\n")}\n`)
   state.ui.debug?.(`saved config ${file}`)
@@ -783,11 +784,13 @@ async function runSelectedCommand(state, value) {
 }
 
 function toolsStatus(state) {
-  const enabled = state.enabledTools?.length ? new Set(state.enabledTools) : null
+  const allEnabled = isAllToolsEnabled(state.enabledTools)
+  const enabled = allEnabled ? null : new Set(state.enabledTools)
   return showTwillight(state, "/tools", [
     "## Tools",
     "",
-    `- preset: \`${enabled ? "custom" : "all"}\``,
+    `- preset: \`${allEnabled ? "all" : "custom"}\``,
+    `- enabled: \`${enabledToolNames(state).length}/${state.registry.tools.length}\``,
     "- usage: `/tool on <name>` or `/tool off <name>`",
     "- presets: `/tool-preset all|read|safe|edit|code|autonomous`",
     "",
@@ -800,10 +803,10 @@ function setTool(state, value) {
   const name = rest.join(" ").trim()
   if (!["on", "off"].includes(mode) || !name) throw new Error("Use /tool on <name> or /tool off <name>.")
   if (!state.registry.tools.some((tool) => tool.name === name)) throw new Error(`Unknown tool: ${name}`)
-  const current = new Set(state.enabledTools?.length ? state.enabledTools : state.registry.tools.map((tool) => tool.name))
+  const current = new Set(isAllToolsEnabled(state.enabledTools) ? state.registry.tools.map((tool) => tool.name) : state.enabledTools)
   if (mode === "on") current.add(name)
   else current.delete(name)
-  state.enabledTools = [...current]
+  state.enabledTools = normalizeEnabledTools([...current], state.registry.tools)
   state.saveConfig?.()
   return toolsStatus(state)
 }
@@ -812,15 +815,15 @@ function setToolPreset(state, value) {
   const all = state.registry.tools.map((tool) => tool.name)
   const presets = {
     all,
-    read: ["list_directory", "read_file", "path_info", "search_text", "git_status", "git_diff"],
-    safe: ["list_directory", "read_file", "path_info", "search_text", "git_status", "git_diff"],
-    edit: ["list_directory", "read_file", "path_info", "search_text", "write_file", "append_file", "make_directory", "copy_path", "git_status", "git_diff"],
+    read: ["list_directory", "list_tree", "read_file", "read_json", "path_info", "paths_info", "find_files", "search_text", "command_exists", "git_status", "git_diff", "git_branch", "git_recent_commits"],
+    safe: ["list_directory", "list_tree", "read_file", "read_json", "path_info", "paths_info", "find_files", "search_text", "command_exists", "git_status", "git_diff", "git_branch", "git_recent_commits"],
+    edit: ["list_directory", "list_tree", "read_file", "read_json", "path_info", "paths_info", "find_files", "search_text", "write_file", "write_json", "append_file", "make_directory", "copy_path", "command_exists", "git_status", "git_diff", "git_branch", "git_recent_commits"],
     code: all.filter((name) => name !== "delete_path"),
     autonomous: all,
   }
   const selected = presets[value]
   if (!selected) throw new Error("Use /tool-preset all, read, safe, edit, code, or autonomous.")
-  state.enabledTools = value === "all" ? [] : selected
+  state.enabledTools = value === "all" || value === "autonomous" ? [ALL_TOOLS] : normalizeEnabledTools(selected, state.registry.tools)
   state.saveConfig?.()
   return toolsStatus(state)
 }

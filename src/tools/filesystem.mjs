@@ -1,5 +1,5 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { assertPermission } from "../security/permissions.mjs"
 import { normalizePath } from "../security/path-policy.mjs"
 
@@ -24,6 +24,15 @@ export function filesystemTools() {
         content: lines.slice(input.start ? input.start - 1 : 0, input.end || lines.length).join("\n"),
       }
     }),
+    tool("list_tree", "List a compact recursive file tree", "read-only", (state, input) => {
+      const target = normalizePath(state, input.path || state.cwd, { workspaceOnly: state.config.permissionMode !== "full-access" })
+      const limit = clamp(input.limit, 20, 400, 160)
+      return walkTree(target, { root: target, limit })
+    }),
+    tool("read_json", "Read and parse a JSON file", "read-only", (state, input) => {
+      const result = filesystemReadFile(state, input)
+      return { path: result.path, json: JSON.parse(result.content) }
+    }),
     tool("write_file", "Write a UTF-8 file atomically", "workspace", (state, input) => {
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
       assertSafeMutation(state, target)
@@ -35,6 +44,13 @@ export function filesystemTools() {
       writeFileSync(target, content)
       state.changes.push({ type: "write", path: target, before, after: content })
       return { path: target, bytes: Buffer.byteLength(content) }
+    }),
+    tool("write_json", "Write formatted JSON atomically", "workspace", (state, input) => {
+      if (!("json" in input)) throw new Error("write_json requires a json field.")
+      return filesystemWriteFile(state, {
+        path: input.path,
+        content: `${JSON.stringify(input.json, null, Number(input.indent || 2))}\n`,
+      })
     }),
     tool("append_file", "Append text to a file", "workspace", (state, input) => {
       const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
@@ -100,7 +116,62 @@ export function filesystemTools() {
       const stat = statSync(target)
       return { path: target, type: stat.isDirectory() ? "dir" : "file", bytes: stat.size }
     }),
+    tool("paths_info", "Get metadata for multiple paths", "read-only", (state, input) => {
+      const paths = Array.isArray(input.paths) ? input.paths : []
+      if (!paths.length) throw new Error("paths_info requires paths.")
+      return paths.slice(0, 80).map((path) => {
+        const target = normalizePath(state, path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+        if (!existsSync(target)) return { path: target, exists: false }
+        const stat = statSync(target)
+        return { path: target, exists: true, type: stat.isDirectory() ? "dir" : "file", bytes: stat.size }
+      })
+    }),
   ]
+}
+
+function filesystemReadFile(state, input) {
+  const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+  if (statSync(target).size > 2_000_000) throw new Error(`File is too large to read safely: ${target}`)
+  const content = readFileSync(target, "utf8")
+  const lines = content.split(/\r?\n/)
+  return {
+    path: target,
+    content: lines.slice(input.start ? input.start - 1 : 0, input.end || lines.length).join("\n"),
+  }
+}
+
+function filesystemWriteFile(state, input) {
+  const target = normalizePath(state, input.path, { workspaceOnly: state.config.permissionMode !== "full-access" })
+  assertSafeMutation(state, target)
+  const content = String(input.content ?? "")
+  mkdirSync(dirname(target), { recursive: true })
+  const existed = existsSync(target)
+  const before = existed ? readFileSync(target, "utf8") : ""
+  state.backups.push({ path: target, existed, content: before })
+  writeFileSync(target, content)
+  state.changes.push({ type: "write", path: target, before, after: content })
+  return { path: target, bytes: Buffer.byteLength(content) }
+}
+
+function walkTree(root, options, entries = []) {
+  if (entries.length >= options.limit) return entries
+  if (!existsSync(root)) return entries
+  const stat = statSync(root)
+  const rel = relative(options.root, root) || "."
+  entries.push({ path: rel, type: stat.isDirectory() ? "dir" : "file", bytes: stat.size })
+  if (!stat.isDirectory()) return entries
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entries.length >= options.limit) break
+    if (ignoredFolders.has(entry.name)) continue
+    walkTree(join(root, entry.name), options, entries)
+  }
+  return entries
+}
+
+function clamp(value, min, max, fallback) {
+  const parsed = Number(value || fallback)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, min), max)
 }
 
 function assertSafeMutation(state, target, options = {}) {

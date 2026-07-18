@@ -7,7 +7,7 @@ import { apiKeyEnvName, apiKeysEnvName, credentialPath, getApiKeys, hasSavedApiK
 import { normalizePath } from "../src/security/path-policy.mjs"
 import { assertCommandAllowed } from "../src/security/command-policy.mjs"
 import { assertPermission } from "../src/security/permissions.mjs"
-import { createRegistry } from "../src/tools/registry.mjs"
+import { ALL_TOOLS, createRegistry, enabledToolNames, isAllToolsEnabled, normalizeEnabledTools } from "../src/tools/registry.mjs"
 import { createRenderer } from "../src/utils/terminal.mjs"
 import { createTaskStore, needsApproval, planLocalWorkflow } from "../src/agent/workflow.mjs"
 import { assistantContentIssue, polishAssistantText, sanitizeAssistantText } from "../src/agent/agent-loop.mjs"
@@ -39,6 +39,7 @@ assert.equal(loadConfig(["--read-only"]).permissionMode, "read-only")
 assert.equal(loadConfig(["--model", "@cf/moonshotai/kimi-k2.7-code"]).provider, "cloudflare")
 assert.equal(loadConfig(["--model", "cohere/north-mini-code:free"]).provider, "openrouter")
 assert.equal(loadConfig([]).updateCheck, true)
+assert.equal(loadConfig([]).enabledTools, ALL_TOOLS)
 assert.equal(isNewerVersion("1.1.10", "1.1.9"), true)
 assert.equal(isNewerVersion("1.1.9", "1.1.10"), false)
 assert.equal(packageMetadata(process.cwd()).name, "twillight")
@@ -129,8 +130,19 @@ assert.throws(() => assertCommandAllowed({ config: { permissionMode: "standard",
 assert.throws(() => assertCommandAllowed({ config: { permissionMode: "standard", commandAllowlist: "npm test,node --check" } }, "pnpm install"))
 
 const registry = createRegistry()
+assert.equal(normalizeEnabledTools("", registry.tools)[0], ALL_TOOLS)
+assert.equal(normalizeEnabledTools("all", registry.tools)[0], ALL_TOOLS)
+state.registry = registry
+state.enabledTools = normalizeEnabledTools("all", registry.tools)
+assert.equal(isAllToolsEnabled(state.enabledTools), true)
+assert.equal(enabledToolNames(state).length, registry.tools.length)
 registry.run(state, "write_file", { path: "a.txt", content: "hello" })
 assert.equal(registry.run(state, "read_file", { path: "a.txt" }).content, "hello")
+registry.run(state, "write_json", { path: "data.json", json: { ok: true } })
+assert.equal(registry.run(state, "read_json", { path: "data.json" }).json.ok, true)
+assert.equal(registry.run(state, "list_tree", { path: root }).some((entry) => entry.path.endsWith("data.json")), true)
+assert.equal(registry.run(state, "paths_info", { paths: ["a.txt", "missing.txt"] })[1].exists, false)
+assert.equal(typeof registry.run(state, "command_exists", { command: "node" }).exists, "boolean")
 assert.equal(state.backups.length > 0, true)
 assert.throws(() => registry.run(state, "delete_path", { path: root, confirm: true }))
 assert.throws(() => registry.run(state, "write_file", { path: ".git/config", content: "no" }))
@@ -138,8 +150,9 @@ assert.throws(() => registry.run(state, "run_command", { command: "node --check 
 assert.doesNotThrow(() => registry.run(state, "run_command", { command: "node --version", env: { SAFE_FLAG: "1", API_KEY: "blocked" } }))
 state.enabledTools = ["read_file"]
 assert.throws(() => registry.run(state, "write_file", { path: "blocked.txt", content: "no" }))
-state.enabledTools = []
+state.enabledTools = [ALL_TOOLS]
 writeFileSync(join(root, "b.txt"), "needle")
+assert.equal(registry.run(state, "find_files", { query: "b.txt" }).length, 1)
 assert.equal(registry.run(state, "search_text", { query: "needle" }).length, 1)
 registry.run(state, "write_file", { path: "move-source.txt", content: "move me" })
 registry.run(state, "move_path", { from: "move-source.txt", to: "move-target.txt" })

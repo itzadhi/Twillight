@@ -6,6 +6,7 @@ import { needsApproval, planLocalWorkflow, workflowStates } from "./workflow.mjs
 import { unifiedDiff } from "../utils/terminal.mjs"
 import { renderChatTurn, renderCommandPalette, renderInputPrompt } from "../ui/dashboard.mjs"
 import { providerInfo } from "../providers/catalog.mjs"
+import { isAllToolsEnabled } from "../tools/registry.mjs"
 
 export async function runTask(state, task) {
   loadProjectMemory(state)
@@ -337,7 +338,7 @@ function systemPrompt(state) {
     "Understand casual human wording, slang, incomplete sentences, and typos. Infer the engineering intent from normal words, then act.",
     "You help as a full coding partner: inspect projects, map architecture, plan work, edit files, run commands, debug failures, review diffs, validate behavior, and summarize the result.",
     `Current mode: ${state.config.agentMode}. Current permission level: ${state.config.permissionMode}. Platform: ${state.config.platform || process.platform}. Workspace: ${state.cwd}.`,
-    `Enabled tools: ${state.enabledTools?.length ? state.enabledTools.join(", ") : "all available Twillight tools"}.`,
+    `Enabled tools: ${isAllToolsEnabled(state.enabledTools) ? "all available Twillight tools" : state.enabledTools.join(", ")}.`,
     `Project memory: ${JSON.stringify(state.projectMemory || {})}`,
     "When the user asks for local filesystem or command actions, assume Twillight can use local tools through its autonomous workflow. Do not say you cannot access the machine unless the workflow is blocked by permissions or missing information.",
     "Never output raw tool-call sentinel markup such as <|tool_call_begin|>, <|tool_calls_section_begin|>, XML tool tags, or JSON tool wrappers. Twillight executes tools outside the model; answer in plain text.",

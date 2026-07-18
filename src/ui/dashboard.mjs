@@ -1,6 +1,7 @@
 import { bg, clean, clipVisible, rgb, theme, truncate } from "../utils/terminal.mjs"
 import { providerInfo } from "../providers/catalog.mjs"
 import { petAccess, petSidebarLine } from "../pets/catalog.mjs"
+import { isAllToolsEnabled } from "../tools/registry.mjs"
 
 export function renderDashboard(state) {
   const ui = state.ui
@@ -248,7 +249,7 @@ function sideRail(state, width, height = termRows() - 2) {
   const activeTask = state.activeTask
   const taskState = activeTask?.status || (state.processing ? "running" : "idle")
   const progress = workflowProgress(activeTask)
-  const tools = state.enabledTools?.length ? `${state.enabledTools.length} selected` : "all enabled"
+  const tools = isAllToolsEnabled(state.enabledTools) ? "all enabled" : `${state.enabledTools.length} selected`
   const actions = activeTask?.status === "awaiting_approval"
     ? [shortcut("Enter", "approve"), shortcut("r / n", "reject")]
     : [shortcut("Enter", "send"), shortcut("Wheel", "scroll"), shortcut("Paste", "image path"), shortcut("Ctrl+C", "exit")]

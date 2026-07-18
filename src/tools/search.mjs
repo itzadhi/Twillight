@@ -6,6 +6,19 @@ import { ignoredFolders } from "./filesystem.mjs"
 export function searchTools() {
   return [
     {
+      name: "find_files",
+      description: "Find files by name across the workspace",
+      permission: "read-only",
+      run(state, input) {
+        const root = normalizePath(state, input.path || state.cwd, { workspaceOnly: state.config.permissionMode !== "full-access" })
+        const query = String(input.query || "").trim().toLowerCase()
+        if (!query || query.length > 120) throw new Error("File query is required and must be 120 characters or less.")
+        return walk(root)
+          .filter((file) => file.toLowerCase().includes(query))
+          .slice(0, input.limit || 80)
+      },
+    },
+    {
       name: "search_text",
       description: "Search text across workspace files",
       permission: "read-only",

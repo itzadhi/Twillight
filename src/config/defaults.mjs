@@ -10,7 +10,7 @@ export const defaults = {
   agentMode: "build",
   permissionMode: "standard",
   commandAllowlist: "node,npm,npx,python,py,pip,git status,git diff,git log,git branch,git rev-parse,git add,git commit,where,dir,type,echo,powershell -NoProfile,pwsh -NoProfile,cmd /c",
-  enabledTools: "",
+  enabledTools: "all",
   developerMode: false,
   developerId: "",
   uncensoredModel: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",

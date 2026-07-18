@@ -6,6 +6,24 @@ import { normalizePath } from "../security/path-policy.mjs"
 export function terminalTools() {
   return [
     {
+      name: "command_exists",
+      description: "Check whether a command is available on PATH",
+      permission: "read-only",
+      run(state, input) {
+        const command = String(input.command || "").trim()
+        if (!/^[a-z0-9_.-]+$/i.test(command)) throw new Error("command_exists requires a simple executable name.")
+        const probe = process.platform === "win32" ? `where ${command}` : `command -v ${command}`
+        const result = spawnSync(probe, {
+          cwd: state.cwd,
+          shell: true,
+          encoding: "utf8",
+          timeout: 5000,
+          maxBuffer: 128 * 1024,
+        })
+        return { command, exists: (result.status ?? 1) === 0, path: String(result.stdout || "").trim().split(/\r?\n/).filter(Boolean)[0] || "" }
+      },
+    },
+    {
       name: "run_command",
       description: "Run a development shell command",
       permission: "standard",
