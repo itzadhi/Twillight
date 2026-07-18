@@ -1,5 +1,6 @@
 import { bg, clean, clipVisible, rgb, theme, truncate } from "../utils/terminal.mjs"
 import { providerInfo } from "../providers/catalog.mjs"
+import { petSidebarLine } from "../pets/catalog.mjs"
 
 export function renderDashboard(state) {
   const ui = state.ui
@@ -180,7 +181,7 @@ function fixedConversation(state, input, answer, thinking, width, height) {
   const inner = Math.max(24, width - 2)
   const bodyHeight = Math.max(8, height - 4)
   const content = [
-    ...inputBlock(input, width),
+    ...inputBlock(input, width - 1),
     "",
     ...thoughtBlock(thinking),
     "",
@@ -188,7 +189,7 @@ function fixedConversation(state, input, answer, thinking, width, height) {
   if (thinking || String(answer || "").trim()) {
     content.push(...replyBlock(answer, width), "")
   }
-  content.push(footerLine(state, width))
+  content.push(footerLine(state, inner))
   const scrollMax = Math.max(0, content.length - bodyHeight)
   state.scrollOffset = Math.min(Math.max(0, state.scrollOffset || 0), scrollMax)
   const start = scrollMax ? scrollMax - state.scrollOffset : 0
@@ -342,8 +343,7 @@ function titleProvider(provider) {
 }
 
 function petLine(state) {
-  if (state.config.pet === "dragon" && state.isProjectDeveloper) return state.processing ? "dragon guarding" : "dragon awake"
-  return state.processing ? "sprite thinking" : "sprite ready"
+  return petSidebarLine(state.config.pet, { isDeveloper: state.isProjectDeveloper, processing: state.processing })
 }
 
 function shortCwd(value) {
@@ -402,7 +402,7 @@ export function scrollConversation(state, delta) {
 }
 
 function frameLine(line, inner, scroll = "│") {
-  const contentWidth = Math.max(1, inner - 1)
+  const contentWidth = Math.max(1, inner)
   const clipped = clipVisible(line, contentWidth)
   return `${rgb(theme.line, "│")}${clipped}${" ".repeat(Math.max(0, contentWidth - clean(clipped).length))}${rgb(theme.line, scroll)}`
 }

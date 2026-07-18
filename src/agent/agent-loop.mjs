@@ -416,7 +416,9 @@ export async function routeLocal(state, input) {
 
 export async function runSlash(state, input) {
   if (input === "/workflow" || input === "/plan") {
-    state.ui.box("workflow", createPlan(state.plan?.objective || "Interactive assistance", state).steps.map((step, index) => state.ui.row(String(index + 1), step)))
+    const steps = createPlan(state.plan?.objective || "Interactive assistance", state).steps
+    renderChatTurn(state, input, ["## Workflow", "", ...steps.map((step, index) => `${index + 1}. ${step}`)].join("\n"))
+    keepPromptVisible(state)
     return true
   }
   if (input === "/pwd") return showResult(state, "workspace", { cwd: state.cwd })
@@ -432,7 +434,6 @@ export async function runSlash(state, input) {
   if (input.startsWith("/rm ")) return showResult(state, "action", state.registry.run(state, "delete_path", { path: input.slice(4), confirm: true }))
   if (input.startsWith("/run ")) {
     const command = input.slice(5)
-    state.ui.box("running", [state.ui.row("command", command), state.ui.row("why", "user requested direct command")])
     return showResult(state, "shell", state.registry.run(state, "run_command", { command }))
   }
   if (input === "/files") return showResult(state, "files", state.registry.run(state, "list_directory", { path: state.cwd }))
@@ -528,20 +529,30 @@ function showActions(state) {
 
 function showTasks(state) {
   const tasks = state.taskStore?.list() || []
-  state.ui.box("tasks", tasks.slice(0, 20).map((task) => state.ui.row(task.id, `${task.status} ${task.risk} ${task.objective}`)))
+  renderChatTurn(state, "/tasks", [
+    "## Tasks",
+    "",
+    ...(tasks.slice(0, 20).map((task) => `- \`${task.id}\`: ${task.status} ${task.risk} - ${task.objective}`)),
+    ...(tasks.length ? [] : ["- no saved workflows yet"]),
+  ].join("\n"))
+  keepPromptVisible(state)
   return true
 }
 
 function showProgress(state, title, steps, task = state.activeTask) {
   const done = steps.filter((step) => step.status === "done").length
   const total = steps.length
-  state.ui.box("progress", [
-    state.ui.row("task", task?.id || "chat"),
-    state.ui.row("risk", task?.risk || "low"),
-    state.ui.row("state", task?.status || "planning"),
-    state.ui.row("progress", `${done}/${total}`),
-    ...steps.map((step) => state.ui.row(marker(step.status), step.label)),
-  ])
+  renderChatTurn(state, title || "progress", [
+    "## Progress",
+    "",
+    `- task: \`${task?.id || "chat"}\``,
+    `- risk: ${task?.risk || "low"}`,
+    `- state: ${task?.status || "planning"}`,
+    `- progress: ${done}/${total}`,
+    "",
+    ...steps.map((step) => `${marker(step.status)} ${step.label}`),
+  ].join("\n"))
+  keepPromptVisible(state)
 }
 
 function renderWorkflowFrame(state, task, note = "") {
@@ -629,10 +640,11 @@ function marker(status) {
 }
 
 function showCommandTransparency(state, step) {
-  const details = step.tool === "run_command"
-    ? [state.ui.row("command", step.input.command), state.ui.row("why", step.label)]
-    : [state.ui.row("tool", step.tool), state.ui.row("why", step.label), state.ui.row("input", JSON.stringify(step.input).slice(0, 180))]
-  state.ui.box("running", details)
+  const lines = step.tool === "run_command"
+    ? [`- command: \`${step.input.command}\``, `- why: ${step.label}`]
+    : [`- tool: \`${step.tool}\``, `- why: ${step.label}`, `- input: \`${JSON.stringify(step.input).slice(0, 180)}\``]
+  renderChatTurn(state, "running", ["## Running", "", ...lines].join("\n"))
+  keepPromptVisible(state)
 }
 
 function showCommandMenu(state) {
@@ -680,7 +692,8 @@ async function runMenuCommand(state, value) {
   const index = Number(value) - 1
   const item = state.commandMenu?.[index]
   if (!item) throw new Error("Run /cmd first, then choose with /do <number>.")
-  state.ui.box("command", [state.ui.row("selected", item.label), state.ui.row("runs", item.command)])
+  renderChatTurn(state, `/do ${value}`, `Running **${item.label}**\n\n\`${item.command}\``)
+  keepPromptVisible(state)
   return runSlash(state, item.command)
 }
 
@@ -755,29 +768,44 @@ function validate(state, task = null) {
       state.taskStore?.save(task)
       renderWorkflowFrame(state, task, `Validated with ${command}.`)
     } else {
-      state.ui.box("running", [state.ui.row("command", command), state.ui.row("why", "validate changed project")])
       showResult(state, "validate", result)
     }
   }
 }
 
 function showResult(state, title, result) {
-  const lines = Array.isArray(result)
-    ? result.map((item) => state.ui.row(item.type || "item", item.name || JSON.stringify(item)))
-    : Object.entries(result).flatMap(([key, value]) => typeof value === "string" ? [state.ui.row(key, value.slice(0, 4000))] : [state.ui.row(key, JSON.stringify(value).slice(0, 4000))])
-  state.ui.box(title, lines.length ? lines : [state.ui.row("result", "ok")])
-  if (result.stdout) state.ui.write(result.stdout.trimEnd())
-  if (result.stderr) state.ui.error(result.stderr.trimEnd())
+  const lines = [`## ${title}`, ""]
+  if (Array.isArray(result)) {
+    for (const item of result) lines.push(`- ${item.type || "item"}: ${item.name || JSON.stringify(item)}`)
+  } else {
+    for (const [key, value] of Object.entries(result || {})) {
+      if (key === "stdout" || key === "stderr") continue
+      lines.push(`- ${key}: ${inlineValue(value)}`)
+    }
+  }
+  if (result?.stdout) lines.push("", "### stdout", "```text", String(result.stdout).trimEnd().slice(0, 4000), "```")
+  if (result?.stderr) lines.push("", "### stderr", "```text", String(result.stderr).trimEnd().slice(0, 4000), "```")
+  if (lines.length <= 2) lines.push("- result: ok")
+  renderChatTurn(state, `/${String(title || "result").replace(/\s+/g, "-")}`, lines.join("\n"))
+  keepPromptVisible(state)
   return true
 }
 
 function finish(state, status) {
-  state.ui.box(status, [
-    state.ui.row("changes", String(state.changes.length)),
-    state.ui.row("commands", String(state.commands.length)),
-    state.ui.row("tokens", String(state.tokens)),
-  ])
+  renderChatTurn(state, status, [
+    `## ${status}`,
+    "",
+    `- changes: ${state.changes.length}`,
+    `- commands: ${state.commands.length}`,
+    `- tokens: ${state.tokens}`,
+  ].join("\n"))
+  keepPromptVisible(state)
   return status
+}
+
+function inlineValue(value) {
+  if (typeof value === "string") return value.length > 180 ? `\`${value.slice(0, 177)}...\`` : `\`${value}\``
+  return `\`${JSON.stringify(value).slice(0, 180)}\``
 }
 
 function summarizeTask(state, task) {

@@ -60,6 +60,7 @@ copy README.md to backup folder
 /uncensored
 /skills
 /pet
+/pet sprite
 /dragon
 /doctor
 ```

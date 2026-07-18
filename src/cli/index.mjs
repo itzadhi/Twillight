@@ -11,6 +11,7 @@ import { loadConfig } from "../config/loader.mjs"
 import { apiKeyEnvName, apiKeysEnvName, credentialPath, hasSavedApiKey, promptSecret, savedApiKeyCount, saveApiKey } from "../config/credentials.mjs"
 import { createProvider } from "../providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../providers/catalog.mjs"
+import { normalizePetName, petAccess, petNames } from "../pets/catalog.mjs"
 import { skillList } from "../skills/catalog.mjs"
 import { createSessionStore } from "../storage/sessions.mjs"
 import { createRegistry } from "../tools/registry.mjs"
@@ -19,7 +20,7 @@ import { detectOpenTui } from "../ui/opentui-adapter.mjs"
 import { summarizeOpenTuiEnv } from "../ui/opentui-env.mjs"
 import { renderComponentShowcase } from "../ui/virtual-components.mjs"
 import { bg, createRenderer, rgb, theme, titleCase, truncate } from "../utils/terminal.mjs"
-import { checkForUpdate, installGlobalUpdate, npmCommandSpec, rememberUpdateInstall, rememberUpdateSkip } from "../update/checker.mjs"
+import { checkForUpdate, installGlobalUpdate, npmCommandSpec, packageMetadata, rememberUpdateInstall, rememberUpdateSkip } from "../update/checker.mjs"
 
 export async function main(argv = process.argv.slice(2)) {
   const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
@@ -120,26 +121,36 @@ function createState(root, config, ui, session) {
     turns: 0,
     tokens: 0,
     reasoningTokens: 0,
-    isProjectDeveloper: isProjectDeveloperWorkspace(root, config),
+    ...developerIdentity(root, config),
   }
 }
 
 function isProjectDeveloperWorkspace(root, config = {}) {
+  return developerIdentity(root, config).isProjectDeveloper
+}
+
+function developerIdentity(root, config = {}) {
   const id = String(config.developerId || "").trim().toLowerCase()
-  if (config.developerMode || ["itzadhi", "itz.adhi", "adhi"].includes(id)) return true
+  if (config.developerMode) return { isProjectDeveloper: true, developerReason: "TWILLIGHT_DEV=1" }
+  if (["itzadhi", "itz.adhi", "adhi"].includes(id)) {
+    return { isProjectDeveloper: true, developerReason: `TWILLIGHT_CREATOR=${config.developerId}` }
+  }
   if (existsSync(join(root, "src", "cli", "index.mjs")) && existsSync(join(root, "package.json"))) {
     try {
       const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
-      if (pkg.name === "twillight") return true
+      if (pkg.name === "twillight") return { isProjectDeveloper: true, developerReason: "local twillight package" }
     } catch {
-      return true
+      return { isProjectDeveloper: true, developerReason: "local twillight source tree" }
     }
   }
   try {
-    return /github\.com[:/]itzadhi\/twillight(?:\.git)?/i.test(readFileSync(join(root, ".git", "config"), "utf8"))
+    if (/github\.com[:/]itzadhi\/twillight(?:\.git)?/i.test(readFileSync(join(root, ".git", "config"), "utf8"))) {
+      return { isProjectDeveloper: true, developerReason: "itzadhi/Twillight git remote" }
+    }
   } catch {
-    return false
+    // no git config is fine
   }
+  return { isProjectDeveloper: false, developerReason: "not in Twillight dev repo" }
 }
 
 function persistProjectConfig(state) {
@@ -638,6 +649,7 @@ async function handleInput(state, input) {
     if (["yes", "y", "accept", "approve", "ok", "okay", "run", "do it", "continue"].includes(normalized)) input = "/approve"
     if (["no", "n", "reject", "cancel", "stop", "nope"].includes(normalized)) input = "/reject"
   }
+  input = normalizeSlashInput(input)
   if (input === "/exit" || input === "/quit") return false
   if (input === "/approve" && state.pendingImplementationPlan) return approveImplementationPlan(state)
   if (input === "/reject" && state.pendingImplementationPlan) return rejectImplementationPlan(state)
@@ -674,10 +686,7 @@ async function handleInput(state, input) {
     const value = input.slice(7).trim()
     if (/^\d+$/.test(value)) return safeSlash(state, `/use ${value}`)
     if (!isLikelyModelId(value)) {
-      state.ui.box("model", [
-        state.ui.row("error", "not a valid model id"),
-        state.ui.row("hint", "run /models, then /use <number>"),
-      ])
+      showTwillight(state, `/model ${value}`, "That is not a valid model id.\n\nRun `/models`, then `/use <number>`.")
       return true
     }
     state.previousModel = state.config.model
@@ -686,11 +695,13 @@ async function handleInput(state, input) {
     state.config.model = value
     state.provider = createProvider(state.config, state.root, state.ui)
     state.saveConfig?.()
-    state.ui.box("model", [
-      state.ui.row("selected", state.config.model),
-      state.ui.row("provider", providerInfo(state.config.provider).title),
-      state.ui.row("saved", ".ai\\config.yaml"),
-    ])
+    showTwillight(state, `/model ${state.config.model}`, [
+      "Model switched.",
+      "",
+      `- selected: \`${state.config.model}\``,
+      `- provider: **${providerInfo(state.config.provider).title}**`,
+      "- saved: `.ai/config.yaml`",
+    ].join("\n"))
     return true
   }
   if (input === "/plan-mode") return setAgentMode(state, "plan")
@@ -737,8 +748,8 @@ async function handleInput(state, input) {
   if (input === "/openai") return setProvider(state, "openai")
   if (input === "/uncensored") return setPresetModel(state, state.config.uncensoredModel || "cognitivecomputations/dolphin-mistral-24b-venice-edition:free")
   if (input === "/copy" || input.startsWith("/copy ")) return copyCodeBlock(state, input.slice(5).trim())
-  if (input === "/permissions") return state.ui.box("permissions", [state.ui.row("mode", state.config.permissionMode)])
-  if (input === "/permission") return state.ui.box("permissions", [state.ui.row("mode", state.config.permissionMode), state.ui.row("use", "/read-only /workspace /standard /full-access")])
+  if (input === "/permissions") return showTwillight(state, "/permissions", `Permission mode: \`${state.config.permissionMode}\``)
+  if (input === "/permission") return showTwillight(state, "/permission", `Permission mode: \`${state.config.permissionMode}\`\n\nUse \`/read-only\`, \`/workspace\`, \`/standard\`, or \`/full-access\`.`)
   if (input.startsWith("/permission ")) {
     return setPermission(state, input.slice(12).trim())
   }
@@ -756,20 +767,21 @@ async function runSelectedCommand(state, value) {
   if (!state.commandMenu?.length) state.commandMenu = createCommandMenu()
   const item = state.commandMenu[index]
   if (!item) throw new Error("That command number is not available. Open /cmd and choose a listed number.")
-  state.ui.box("command", [state.ui.row("selected", item.label || item.command), state.ui.row("runs", item.command)])
+  showTwillight(state, `/do ${value}`, `Running **${item.label || item.command}**\n\n\`${item.command}\``)
   return handleInput(state, item.command)
 }
 
 function toolsStatus(state) {
   const enabled = state.enabledTools?.length ? new Set(state.enabledTools) : null
-  state.ui.box("tools", [
-    state.ui.row("preset", enabled ? "custom" : "all"),
-    state.ui.row("selector", "/tools-ui"),
-    state.ui.row("usage", "/tool on <name>  /tool off <name>"),
-    state.ui.row("presets", "/tool-preset all|read|safe|edit|code|autonomous"),
-    ...state.registry.tools.map((tool) => state.ui.row(enabled?.has(tool.name) || !enabled ? "on" : "off", `${tool.name} · ${tool.permission}`)),
-  ])
-  return true
+  return showTwillight(state, "/tools", [
+    "## Tools",
+    "",
+    `- preset: \`${enabled ? "custom" : "all"}\``,
+    "- usage: `/tool on <name>` or `/tool off <name>`",
+    "- presets: `/tool-preset all|read|safe|edit|code|autonomous`",
+    "",
+    ...state.registry.tools.map((tool) => `- ${enabled?.has(tool.name) || !enabled ? "on" : "off"}: \`${tool.name}\` (${tool.permission})`),
+  ].join("\n"))
 }
 
 function setTool(state, value) {
@@ -808,12 +820,13 @@ function setPresetModel(state, model) {
   state.config.provider = "openrouter"
   state.provider = createProvider(state.config, state.root, state.ui)
   state.saveConfig?.()
-  state.ui.box("model", [
-    state.ui.row("selected", model),
-    state.ui.row("source", "OpenRouter Venice Uncensored free"),
-    state.ui.row("saved", ".ai\\config.yaml"),
-  ])
-  return true
+  return showTwillight(state, "/uncensored", [
+    "Model switched.",
+    "",
+    `- selected: \`${model}\``,
+    "- source: OpenRouter Venice Uncensored free",
+    "- saved: `.ai/config.yaml`",
+  ].join("\n"))
 }
 
 async function chooseProvider(state) {
@@ -918,13 +931,14 @@ function providerMenuRows(state) {
 }
 
 function cloudflareGatewayStatus(state) {
-  state.ui.box("cloudflare gateway", [
-    state.ui.row("url", state.config.cloudflareGatewayUrl || providerInfo("cloudflare").chat),
-    state.ui.row("set", "/gateway https://your-worker.workers.dev"),
-    state.ui.row("provider", "/provider cloudflare"),
-    state.ui.row("model", "/model @cf/moonshotai/kimi-k2.7-code"),
-  ])
-  return true
+  return showTwillight(state, "/gateway", [
+    "## Cloudflare Gateway",
+    "",
+    `- url: \`${state.config.cloudflareGatewayUrl || providerInfo("cloudflare").chat}\``,
+    "- set: `/gateway https://your-worker.workers.dev`",
+    "- provider: `/provider cloudflare`",
+    "- model: `/model @cf/moonshotai/kimi-k2.7-code`",
+  ].join("\n"))
 }
 
 function setCloudflareGateway(state, value) {
@@ -936,13 +950,14 @@ function setCloudflareGateway(state, value) {
   state.provider = createProvider(state.config, state.root, state.ui)
   state.freeModels = []
   state.saveConfig?.()
-  state.ui.box("cloudflare gateway", [
-    state.ui.row("url", state.config.cloudflareGatewayUrl),
-    state.ui.row("provider", providerInfo(state.config.provider).title),
-    state.ui.row("model", state.config.model),
-    state.ui.row("saved", ".ai\\config.yaml"),
-  ])
-  return true
+  return showTwillight(state, `/gateway ${state.config.cloudflareGatewayUrl}`, [
+    "Cloudflare gateway saved.",
+    "",
+    `- url: \`${state.config.cloudflareGatewayUrl}\``,
+    `- provider: **${providerInfo(state.config.provider).title}**`,
+    `- model: \`${state.config.model}\``,
+    "- saved: `.ai/config.yaml`",
+  ].join("\n"))
 }
 
 function normalizeUrlInput(value) {
@@ -984,14 +999,15 @@ function providerSupportsModel(provider, model) {
 }
 
 function modelStatus(state) {
-  state.ui.box("model", [
-    state.ui.row("current", state.config.model),
-    state.ui.row("provider", providerInfo(state.config.provider).title),
-    state.ui.row("choose", "/models then /use <number>"),
-    state.ui.row("exact", "/model provider/model:id"),
-    state.ui.row("cloudflare", "/model @cf/moonshotai/kimi-k2.7-code"),
-  ])
-  return true
+  return showTwillight(state, "/model", [
+    "## Model",
+    "",
+    `- current: \`${state.config.model}\``,
+    `- provider: **${providerInfo(state.config.provider).title}**`,
+    "- choose: `/models` then `/use <number>`",
+    "- exact: `/model provider/model:id`",
+    "- cloudflare: `/model @cf/moonshotai/kimi-k2.7-code`",
+  ].join("\n"))
 }
 
 function bareSlashUsage(input) {
@@ -1010,30 +1026,23 @@ function bareSlashUsage(input) {
 }
 
 function usageBox(state, command, message) {
-  state.ui.box("usage", [
-    state.ui.row("command", command),
-    state.ui.row("how", message),
-  ])
-  return true
+  return showTwillight(state, command, `Usage: ${message}`)
 }
 
 function copyCodeBlock(state, value) {
   const index = Number(value || "1") - 1
   const block = state.codeBlocks?.[index]
   if (!block) {
-    state.ui.box("copy", [
-      state.ui.row("result", "no code block found"),
-      state.ui.row("hint", "ask for code, then run /copy 1"),
-    ])
-    return true
+    return showTwillight(state, "/copy", "No code block found yet.\n\nAsk for code, then run `/copy 1`.")
   }
   const result = copyText(block.content)
-  state.ui.box("copy", [
-    state.ui.row("block", String(block.index)),
-    state.ui.row("lang", block.lang || "text"),
-    state.ui.row("status", result.ok ? "copied to clipboard" : result.error),
-  ])
-  return true
+  return showTwillight(state, `/copy ${block.index}`, [
+    result.ok ? "Copied code block to clipboard." : "Copy failed.",
+    "",
+    `- block: ${block.index}`,
+    `- lang: \`${block.lang || "text"}\``,
+    `- status: ${result.ok ? "ok" : result.error}`,
+  ].join("\n"))
 }
 
 function copyText(text) {
@@ -1152,20 +1161,21 @@ function casualResponse(input) {
 }
 
 function status(state) {
-  state.ui.box("session", [
-    state.ui.row("id", state.id),
-    state.ui.row("elapsed", elapsed(state.started)),
-    state.ui.row("turns", String(state.turns)),
-    state.ui.row("provider", titleCase(state.provider.provider)),
-    state.ui.row("cwd", truncate(state.cwd, 23)),
-    state.ui.row("model", truncate(state.config.model, 23)),
-    state.ui.row("mode", state.config.agentMode),
-    state.ui.row("ui", state.uiEngine.available ? `opentui-${state.uiEngine.note}` : "ansi"),
-    state.ui.row("tokens", String(state.tokens)),
-    state.ui.row("reason", String(state.reasoningTokens)),
-    state.ui.row("perm", state.config.permissionMode),
-  ])
-  return true
+  return showTwillight(state, "/status", [
+    "## Session",
+    "",
+    `- id: \`${state.id}\``,
+    `- elapsed: \`${elapsed(state.started)}\``,
+    `- turns: ${state.turns}`,
+    `- provider: **${titleCase(state.provider.provider)}**`,
+    `- cwd: \`${state.cwd}\``,
+    `- model: \`${state.config.model}\``,
+    `- mode: \`${state.config.agentMode}\``,
+    `- ui: \`${state.uiEngine.available ? `opentui-${state.uiEngine.note}` : "ansi"}\``,
+    `- tokens: ${state.tokens}`,
+    `- reasoning: ${state.reasoningTokens}`,
+    `- permission: \`${state.config.permissionMode}\``,
+  ].join("\n"))
 }
 
 function help(state) {
@@ -1228,14 +1238,15 @@ function helpText() {
 }
 
 function mcpStatus(state) {
-  state.ui.box("mcp", [
-    state.ui.row("server", "twillight-mcp"),
-    state.ui.row("command", "npm run mcp"),
-    state.ui.row("direct", "node src/mcp/server.mjs"),
-    state.ui.row("tools", String(state.registry.tools.length)),
-    state.ui.row("mode", "stdio JSON-RPC"),
-  ])
-  return true
+  return showTwillight(state, "/mcp", [
+    "## MCP",
+    "",
+    "- server: `twillight-mcp`",
+    "- command: `npm run mcp`",
+    "- direct: `node src/mcp/server.mjs`",
+    `- tools: ${state.registry.tools.length}`,
+    "- mode: stdio JSON-RPC",
+  ].join("\n"))
 }
 
 function providersStatus(state) {
@@ -1255,31 +1266,55 @@ function providersStatus(state) {
 }
 
 function skillsStatus(state) {
-  state.ui.box("skills", skillList().flatMap((skill) => [
-    state.ui.row(skill.id, skill.title),
-    state.ui.row("does", skill.description),
-    state.ui.row("uses", skill.commands.join(", ")),
-  ]))
-  return true
+  return showTwillight(state, "/skills", [
+    "## Skills",
+    "",
+    ...skillList().flatMap((skill) => [
+      `### ${skill.title}`,
+      `- id: \`${skill.id}\``,
+      `- does: ${skill.description}`,
+      `- uses: ${skill.commands.map((item) => `\`${item}\``).join(", ")}`,
+      "",
+    ]),
+  ].join("\n").trim())
 }
 
-function petStatus(state) {
-  const pet = currentPet(state)
-  const art = state.config.pet === "dragon"
-    ? ["       /\\", "  /\\  /  \\  /\\", " <  lavender  >", "  \\/\\____/\\/"]
-    : ["   .--.", "  (o  o)  sprite", "  /|\\/|\\", "   /  \\"]
-  state.ui.box("pet", [
-    ...art.map((line) => state.ui.row("", line)),
-    state.ui.row("name", pet.name),
-    state.ui.row("mood", pet.mood),
-    state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
-    state.ui.row("switch", "/pet sprite  /dragon"),
-    state.ui.row("hint", state.isProjectDeveloper ? "dragon is available for Adhi/dev repo" : "set TWILLIGHT_CREATOR=itzadhi or run inside itzadhi/twillight"),
-  ])
-  return true
+function petStatus(state, inputLabel = "/pet") {
+  const access = petAccess(state.config.pet, state.isProjectDeveloper)
+  const active = access.activePet
+  const requested = access.pet
+  const lines = [
+    "## Pet",
+    "",
+    "```text",
+    ...active.art,
+    "```",
+    "",
+    `- active: **${active.title}** \`${access.activeName}\``,
+    `- state: ${state.processing ? active.busy : active.idle}`,
+    `- role: ${active.role}`,
+    `- trait: ${active.trait}`,
+    `- dev identity: ${state.isProjectDeveloper ? `yes (${state.developerReason})` : `no (${state.developerReason})`}`,
+    "",
+    "### Helps With",
+    ...active.helps.map((item) => `- ${item}`),
+    "",
+    "### Switch",
+    `- available: ${petNames().map((name) => `\`${name}\``).join(", ")}`,
+    "- use `/pet sprite` or `/dragon`",
+  ]
+  if (!access.allowed) {
+    lines.push(
+      "",
+      `Requested **${requested.title}**, but it is developer-only.`,
+      "Unlock it by running inside the `itzadhi/Twillight` repo, or set `TWILLIGHT_CREATOR=itzadhi` / `TWILLIGHT_DEV=1`.",
+    )
+  }
+  return showTwillight(state, inputLabel, lines.join("\n"))
 }
 
 function doctorStatus(state) {
+  const pkg = packageMetadata(state.appRoot)
   const globalPrefix = runCapture(npmCommandSpec(["prefix", "-g"]))
   const whereTwillight = process.platform === "win32" ? runCapture("where.exe", ["twillight"]) : runCapture("which", ["twillight"])
   const whereTwilight = process.platform === "win32" ? runCapture("where.exe", ["twilight"]) : runCapture("which", ["twilight"])
@@ -1289,18 +1324,41 @@ function doctorStatus(state) {
   const pathHasPrefix = prefix ? segments.includes(normalizePathSegment(prefix)) : false
   const twillightBin = firstLine(whereTwillight.stdout) || whereTwillight.error || "not found"
   const twilightBin = firstLine(whereTwilight.stdout) || whereTwilight.error || "not found"
-  state.ui.box("doctor", [
-    state.ui.row("bin", "twillight, twilight"),
-    state.ui.row("npm", globalPrefix.command),
-    state.ui.row("npm global", prefix || globalPrefix.error || "unknown"),
-    state.ui.row("on PATH", pathHasPrefix ? "yes" : "no or old terminal"),
-    state.ui.row("twillight", twillightBin),
-    state.ui.row("twilight", twilightBin),
-    state.ui.row("dev", state.isProjectDeveloper ? "yes" : "no"),
-    state.ui.row("dev env", "set TWILLIGHT_CREATOR=itzadhi"),
-    state.ui.row("fix", pathHasPrefix ? "ok" : "open a new terminal or add npm global to PATH"),
-  ])
-  return true
+  const pet = petAccess(state.config.pet, state.isProjectDeveloper)
+  const issues = []
+  if (!pathHasPrefix) issues.push(`npm global prefix is not on PATH: \`${prefix || "unknown"}\``)
+  if (/not found/i.test(twillightBin)) issues.push("`twillight` command shim was not found")
+  if (!state.isProjectDeveloper && state.config.pet === "dragon") issues.push("dragon pet is locked outside developer identity")
+  const lines = [
+    "## Doctor",
+    "",
+    `- package: \`${pkg.name || "twillight"}@${pkg.version || "unknown"}\``,
+    `- workspace: \`${state.root}\``,
+    `- npm: \`${globalPrefix.command}\``,
+    `- npm global: \`${prefix || globalPrefix.error || "unknown"}\``,
+    `- PATH: ${pathHasPrefix ? "ok" : "missing npm global prefix or old terminal"}`,
+    `- twillight bin: \`${twillightBin}\``,
+    `- twilight alias: \`${twilightBin}\``,
+    "",
+    "### Provider",
+    `- provider: **${providerInfo(state.provider?.provider || state.config.provider).title}**`,
+    `- model: \`${state.config.model}\``,
+    "",
+    "### Pet",
+    `- configured: \`${state.config.pet || "sprite"}\``,
+    `- active: **${pet.activePet.title}**`,
+    `- state: ${state.processing ? pet.activePet.busy : pet.activePet.idle}`,
+    `- developer: ${state.isProjectDeveloper ? "yes" : "no"} (${state.developerReason})`,
+    "",
+    "### Result",
+    issues.length ? issues.map((issue) => `- ${issue}`) : ["- no local install/pet issues detected"],
+    "",
+    "### Fixes",
+    pathHasPrefix ? "- PATH looks ok" : "- open a new terminal after install, or add npm global prefix to PATH",
+    /not found/i.test(twillightBin) ? "- run `npm install -g twillight@latest`" : "- `twillight` command shim found",
+    state.isProjectDeveloper ? "- developer dragon unlocked" : "- to unlock dragon: `set TWILLIGHT_CREATOR=itzadhi` or run inside `itzadhi/Twillight`",
+  ].flat()
+  return showTwillight(state, "/doctor", lines.join("\n"))
 }
 
 async function updateStatus(state, force = false) {
@@ -1317,20 +1375,22 @@ async function updateStatus(state, force = false) {
       if (choice === "install") return installUpdate(state, info)
       rememberUpdateSkip(state.root, info)
     }
-    state.ui.box("update", [
-      state.ui.row("current", info.current),
-      state.ui.row("latest", info.latest),
-      state.ui.row("install", "/update-install"),
-      state.ui.row("command", info.command),
-    ])
-    return true
+    return showTwillight(state, "/update", [
+      "Update available.",
+      "",
+      `- current: \`${info.current}\``,
+      `- latest: \`${info.latest}\``,
+      "- install: `/update-install`",
+      `- command: \`${info.command}\``,
+    ].join("\n"))
   }
-  state.ui.box("update", [
-    state.ui.row("current", info.current || "unknown"),
-    state.ui.row("latest", info.latest || "unknown"),
-    state.ui.row("status", info.reason === "cached" ? "already checked recently" : "up to date"),
-  ])
-  return true
+  return showTwillight(state, "/update", [
+    "Twillight is up to date.",
+    "",
+    `- current: \`${info.current || "unknown"}\``,
+    `- latest: \`${info.latest || "unknown"}\``,
+    `- status: ${info.reason === "cached" ? "already checked recently" : "up to date"}`,
+  ].join("\n"))
 }
 
 async function updateInstallCommand(state) {
@@ -1342,12 +1402,12 @@ async function updateInstallCommand(state) {
     stop()
   }
   if (!info.available) {
-    state.ui.box("update", [
-      state.ui.row("status", "already on latest"),
-      state.ui.row("current", info.current || "unknown"),
-      state.ui.row("latest", info.latest || "unknown"),
-    ])
-    return true
+    return showTwillight(state, "/update-install", [
+      "Already on latest.",
+      "",
+      `- current: \`${info.current || "unknown"}\``,
+      `- latest: \`${info.latest || "unknown"}\``,
+    ].join("\n"))
   }
   return installUpdate(state, info)
 }
@@ -1378,17 +1438,41 @@ function normalizePathSegment(value) {
 }
 
 function setPet(state, value) {
-  if (value === "dragon" && !state.isProjectDeveloper) {
-    return showTwillight(state, "/dragon", "Developer dragon is locked. Run inside the itzadhi/twillight repo or set TWILLIGHT_CREATOR=itzadhi.")
+  const name = normalizePetName(value)
+  if (!name) {
+    return showTwillight(state, `/pet ${value || ""}`.trim(), [
+      `Unknown pet: ${value || "(missing)"}`,
+      "",
+      `Available pets: ${petNames().map((pet) => `\`${pet}\``).join(", ")}`,
+    ].join("\n"))
   }
-  state.config.pet = value
+  const access = petAccess(name, state.isProjectDeveloper)
+  if (!access.allowed) {
+    return showTwillight(state, "/dragon", [
+      "Developer dragon is locked.",
+      "",
+      "How Twillight unlocks it:",
+      "- run inside the `itzadhi/Twillight` repository",
+      "- or set `TWILLIGHT_CREATOR=itzadhi`",
+      "- or set `TWILLIGHT_DEV=1`",
+      "",
+      `Current identity: ${state.developerReason}`,
+      "",
+      "Using sprite for now.",
+    ].join("\n"))
+  }
+  state.config.pet = name
   state.saveConfig?.()
-  return petStatus(state)
+  return petStatus(state, name === "dragon" ? "/dragon" : `/pet ${name}`)
 }
 
 function currentPet(state) {
-  if (state.config.pet === "dragon") return { name: "Lavender Dragon", mood: state.processing ? "guarding the build" : "watching the workspace" }
-  return { name: "Twillight Sprite", mood: state.processing ? "thinking with you" : "ready" }
+  const access = petAccess(state.config.pet, state.isProjectDeveloper)
+  return {
+    name: access.activePet.title,
+    mood: state.processing ? access.activePet.busy : access.activePet.idle,
+    trait: access.activePet.trait,
+  }
 }
 
 function showTwillight(state, input, message) {
@@ -1448,29 +1532,27 @@ function friendlyError(error) {
 }
 
 function uiStatus(state) {
-  state.ui.box("ui", [
-    state.ui.row("engine", state.uiEngine.available ? "OpenTUI" : "ANSI"),
-    state.ui.row("mode", state.uiEngine.mode || "ansi"),
-    state.ui.row("native", state.uiEngine.nativeRenderer ? "yes" : "no"),
-    state.ui.row("node", process.version),
-    state.ui.row("exports", state.uiEngine.exports?.join(", ") || "none"),
-    state.ui.row("reason", state.uiEngine.reason || "ready"),
-  ])
-  return true
+  return showTwillight(state, "/ui", [
+    "## UI",
+    "",
+    `- engine: ${state.uiEngine.available ? "OpenTUI" : "ANSI"}`,
+    `- mode: \`${state.uiEngine.mode || "ansi"}\``,
+    `- native: ${state.uiEngine.nativeRenderer ? "yes" : "no"}`,
+    `- node: \`${process.version}\``,
+    `- exports: ${state.uiEngine.exports?.join(", ") || "none"}`,
+    `- reason: ${state.uiEngine.reason || "ready"}`,
+  ].join("\n"))
 }
 
 function envStatus(state) {
   const config = state.uiEngine.env || {}
-  state.ui.box("opentui env", summarizeOpenTuiEnv(config).map((line) => state.ui.row("env", line)))
-  return true
+  return showTwillight(state, "/env", ["## OpenTUI Env", "", ...summarizeOpenTuiEnv(config).map((line) => `- ${line}`)].join("\n"))
 }
 
 function setAgentMode(state, mode) {
   state.config.agentMode = mode
   state.saveConfig?.()
-  state.ui.box("mode", [state.ui.row("agent", mode)])
-  status(state)
-  return true
+  return showTwillight(state, `/${mode}-mode`, `Agent mode switched to \`${mode}\`.`)
 }
 
 function setPermission(state, mode) {
@@ -1480,20 +1562,20 @@ function setPermission(state, mode) {
   }
   state.config.permissionMode = mode
   state.saveConfig?.()
-  state.ui.box("permissions", [state.ui.row("mode", mode)])
-  status(state)
-  return true
+  return showTwillight(state, `/permission ${mode}`, `Permission mode switched to \`${mode}\`.`)
 }
 
 function keysStatus(state) {
-  state.ui.box("keys", [
-    state.ui.row("file", credentialPath(state.root)),
-    ...providerNames().flatMap((provider) => [
-      state.ui.row(provider, `${savedApiKeyCount(state.root, provider)} saved/available`),
-      state.ui.row("env", apiKeyEnvName(provider) ? `${apiKeyEnvName(provider)} or ${apiKeysEnvName(provider)}` : "no key required"),
-    ]),
-  ])
-  return true
+  return showTwillight(state, "/keys", [
+    "## Keys",
+    "",
+    `- file: \`${credentialPath(state.root)}\``,
+    "",
+    ...providerNames().map((provider) => {
+      const env = apiKeyEnvName(provider) ? `${apiKeyEnvName(provider)} or ${apiKeysEnvName(provider)}` : "no key required"
+      return `- ${provider}: ${savedApiKeyCount(state.root, provider)} saved/available (${env})`
+    }),
+  ].join("\n"))
 }
 
 async function saveKeyPrompt(state, requestedProvider = "", append = false) {
@@ -1504,13 +1586,14 @@ async function saveKeyPrompt(state, requestedProvider = "", append = false) {
   const key = await promptSecret(`${envName}: `)
   saveApiKey(state.root, provider, key, { append })
   if (provider === state.provider.provider) state.provider = createProvider(state.config, state.root, state.ui)
-  state.ui.box("key", [
-    state.ui.row("provider", provider),
-    state.ui.row("status", append ? "added" : "saved"),
-    state.ui.row("keys", String(savedApiKeyCount(state.root, provider))),
-    state.ui.row("file", credentialPath(state.root)),
-  ])
-  return true
+  return showTwillight(state, `/key ${provider}`, [
+    "Key saved.",
+    "",
+    `- provider: \`${provider}\``,
+    `- status: ${append ? "added" : "saved"}`,
+    `- keys: ${savedApiKeyCount(state.root, provider)}`,
+    `- file: \`${credentialPath(state.root)}\``,
+  ].join("\n"))
 }
 
 async function ensureInteractiveKey(state) {
@@ -1526,7 +1609,7 @@ async function attachImage(state, value) {
   const ext = imagePath.toLowerCase().endsWith(".jpg") || imagePath.toLowerCase().endsWith(".jpeg") ? "jpeg" : "png"
   const data = readFileSync(imagePath).toString("base64")
   state.pendingImage = `data:image/${ext};base64,${data}`
-  state.ui.box("image", [state.ui.row("path", imagePath), state.ui.row("status", "attached")])
+  showTwillight(state, "/image", `Image attached.\n\n- path: \`${imagePath}\``)
   if (promptParts.join(" -- ").trim()) await safeRunTask(state, promptParts.join(" -- ").trim())
   return true
 }
@@ -1545,13 +1628,16 @@ function attachPastedImages(state, input) {
   const localPath = imagePath.replace(/^file:\/\/\//i, "").replace(/\//g, "\\")
   const ext = localPath.toLowerCase().endsWith(".jpg") || localPath.toLowerCase().endsWith(".jpeg") ? "jpeg" : localPath.toLowerCase().endsWith(".webp") ? "webp" : "png"
   state.pendingImage = `data:image/${ext};base64,${readFileSync(localPath).toString("base64")}`
-  state.ui.box("image", [state.ui.row("attached", localPath), state.ui.row("mode", "pasted path")])
+  showTwillight(state, "image", `Image attached from pasted path.\n\n- path: \`${localPath}\``)
   return paths.reduce((value, path) => value.replace(path, ""), text).trim() || "Describe this image."
 }
 
 function configBox(state) {
-  state.ui.box("config", Object.entries(state.config).map(([key, value]) => state.ui.row(key, value)))
-  return true
+  return showTwillight(state, "/config", [
+    "## Config",
+    "",
+    ...Object.entries(state.config).map(([key, value]) => `- ${key}: \`${String(value)}\``),
+  ].join("\n"))
 }
 
 function unknown(state, input) {
@@ -1561,10 +1647,26 @@ function unknown(state, input) {
     : `Unknown command: ${input}\n\nPress ctrl+p or use \`/cmd\` for commands.`)
 }
 
-export function closestCommand(input) {
+export function normalizeSlashInput(input) {
+  const raw = String(input || "").trim()
+  if (!raw.startsWith("/")) return raw
+  const [head = "", ...rest] = raw.split(/\s+/)
+  const alias = slashAlias(raw) || slashAlias(head)
+  if (alias) return alias.includes(" ") ? alias : [alias, ...rest].join(" ").trim()
+  if (knownSlashHeads().includes(head.toLowerCase())) return raw
+  const corrected = closestCommand(raw) || closestCommand(head)
+  if (!corrected) return raw
+  if (corrected.includes(" ")) return corrected
+  return [corrected, ...rest].join(" ").trim()
+}
+
+function slashAlias(input) {
   const value = String(input || "").trim().toLowerCase()
-  const head = value.split(/\s+/)[0]
-  const aliases = {
+  return slashAliases()[value] || ""
+}
+
+function slashAliases() {
+  return {
     "/cmds": "/cmd",
     "/commands": "/cmd",
     "/comands": "/cmd",
@@ -1581,13 +1683,31 @@ export function closestCommand(input) {
     "/provider-list": "/providers list",
     "/workr": "/worker",
     "/gate": "/gateway",
-    "/model": "/models",
     "/mp": "/mcp",
     "/upgrade": "/update",
     "/updates": "/update",
     "/updat": "/update",
   }
-  if (aliases[value] || aliases[head]) return aliases[value] || aliases[head]
+}
+
+function knownSlashHeads() {
+  return [
+    "/actions", "/approve", "/append", "/build-mode", "/cerebras", "/changes", "/clear", "/cloudflare", "/cmd", "/cmds", "/commands",
+    "/components", "/config", "/copy", "/dashboard", "/diff", "/do", "/doctor", "/dragon", "/env", "/exit", "/files", "/full-access",
+    "/gateway", "/git", "/git-diff", "/git-status", "/groq", "/help", "/hf", "/huggingface", "/image", "/key", "/key-add", "/keys",
+    "/mcp", "/memory", "/mkdir", "/model", "/models", "/ollama", "/openai", "/openrouter", "/palette", "/permission", "/permissions",
+    "/pet", "/plan-mode", "/provider", "/providers", "/pwd", "/read", "/read-only", "/reject", "/remember", "/rm", "/rollback",
+    "/run", "/sambanova", "/settings", "/skills", "/standard", "/status", "/tasks", "/tool", "/tool-preset", "/tools", "/tools-ui",
+    "/ui", "/uncensored", "/undo", "/update", "/update-check", "/update-install", "/updates", "/upgrade", "/use", "/worker", "/workers",
+    "/workers-ai", "/workspace", "/write",
+  ]
+}
+
+export function closestCommand(input) {
+  const value = String(input || "").trim().toLowerCase()
+  const head = value.split(/\s+/)[0]
+  const alias = slashAlias(value) || slashAlias(head)
+  if (alias) return alias
   const commands = [
     "/actions", "/approve", "/build-mode", "/cerebras", "/changes", "/clear", "/cloudflare", "/cmd", "/components", "/config",
     "/copy", "/diff", "/doctor", "/dragon", "/env", "/exit", "/files", "/full-access", "/git-diff", "/git-status",

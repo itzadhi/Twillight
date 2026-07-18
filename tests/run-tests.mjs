@@ -15,9 +15,10 @@ import { canUseNativeRenderer, detectOpenTui } from "../src/ui/opentui-adapter.m
 import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
 import { extractCodeBlocks } from "../src/ui/dashboard.mjs"
-import { closestCommand, isLikelyModelId, mouseScrollDelta, parseProviderRequest } from "../src/cli/index.mjs"
+import { closestCommand, isLikelyModelId, mouseScrollDelta, normalizeSlashInput, parseProviderRequest } from "../src/cli/index.mjs"
 import { cloudflareEndpoint, isCloudflareChallengeText, normalizeProviderContent, providerHttpError, responseFromJson } from "../src/providers/openrouter-provider.mjs"
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
+import { normalizePetName, petAccess, petSidebarLine } from "../src/pets/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
 import { isNewerVersion, npmCommandSpec, npmCliPath, packageMetadata } from "../src/update/checker.mjs"
 
@@ -98,6 +99,12 @@ assert.equal(providerInfo("cloudflare").defaultModel, "@cf/moonshotai/kimi-k2.7-
 assert.equal(providerInfo("cloudflare").fallbackModels.includes("@cf/zai/glm-4.7-flash"), true)
 assert.equal(providerNames().includes("sambanova"), true)
 assert.equal(providerNames().includes("cloudflare"), true)
+assert.equal(normalizePetName("dragom"), "dragon")
+assert.equal(petAccess("dragon", false).allowed, false)
+assert.equal(petAccess("dragon", true).activePet.title, "Lavender Dragon")
+assert.equal(petSidebarLine("dragon", { isDeveloper: true, processing: false }), "dragon up")
+assert.equal(petSidebarLine("dragon", { isDeveloper: false, processing: false }), "dragon lock")
+assert.equal(petSidebarLine("sprite", { isDeveloper: false, processing: true }), "sprite work")
 assert.equal(skillList().some((skill) => skill.id === "plan-first-build"), true)
 assert.equal(normalizePath(state, "file.txt").endsWith("file.txt"), true)
 assert.throws(() => normalizePath(state, `${root}2\\escape.txt`, { workspaceOnly: true }))
@@ -192,6 +199,16 @@ assert.equal(closestCommand("/provider-list"), "/providers list")
 assert.equal(closestCommand("/gate"), "/gateway")
 assert.equal(closestCommand("/updat"), "/update")
 assert.equal(closestCommand("/provider"), "")
+assert.equal(closestCommand("/model"), "")
+assert.equal(normalizeSlashInput("hello"), "hello")
+assert.equal(normalizeSlashInput("/cmds"), "/cmd")
+assert.equal(normalizeSlashInput("/providr cloudflare"), "/provider cloudflare")
+assert.equal(normalizeSlashInput("/provider-list"), "/providers list")
+assert.equal(normalizeSlashInput("/model"), "/model")
+assert.equal(normalizeSlashInput("/models"), "/models")
+assert.equal(normalizeSlashInput("/model @cf/moonshotai/kimi-k2.7-code"), "/model @cf/moonshotai/kimi-k2.7-code")
+assert.equal(normalizeSlashInput("/provider cloudflare"), "/provider cloudflare")
+assert.equal(normalizeSlashInput("/dragon"), "/dragon")
 assert.equal(polishAssistantText("Theusertypedwhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.").includes(". This"), true)
 assert.deepEqual(parseProviderRequest("@cf/moonshotai/kimi-k2.7-code"), { provider: "cloudflare", gatewayUrl: "", model: "@cf/moonshotai/kimi-k2.7-code" })
 assert.deepEqual(parseProviderRequest("cloudflare ai.itzadhi.in @cf/zai/glm-4.7-flash"), { provider: "cloudflare", gatewayUrl: "ai.itzadhi.in", model: "@cf/zai/glm-4.7-flash" })

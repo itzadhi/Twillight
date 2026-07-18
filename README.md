@@ -212,6 +212,7 @@ The folder you launch `twillight` from becomes the active workspace sandbox. Ses
 /providers
 /skills
 /pet
+/pet sprite
 /dragon
 /doctor
 /clear
@@ -226,6 +227,8 @@ The top of the terminal shows quick-access button labels such as:
 ```
 
 Type the label shown inside brackets to activate it. Model calls show a `Twillight thinking...` animation while waiting.
+
+`/pet` shows the active companion, its trait, and what it is helping with. `/dragon` unlocks the developer dragon inside the `itzadhi/Twillight` repo or when `TWILLIGHT_CREATOR=itzadhi` / `TWILLIGHT_DEV=1` is set. `/doctor` reports the exact pet/developer identity state plus npm/PATH health.
 
 ## OpenTUI On Node 20
 

@@ -106,6 +106,8 @@ or:
 set TWILLIGHT_DEV=1
 ```
 
+Run `/doctor` to see the detected developer identity reason, current pet, npm global path, and command shim health.
+
 ## Defaults
 
 Default provider:
