@@ -274,6 +274,7 @@ async function installUpdate(state, info) {
     rememberUpdateInstall(state.root, info)
     showTwillight(state, "/update", [
       `Installed Twillight ${info.latest} globally.`,
+      result.strategy ? `Used: \`${result.strategy}\`.` : "",
       "",
       "Open a new terminal if Windows keeps the old command shim cached.",
       "",
@@ -285,6 +286,7 @@ async function installUpdate(state, info) {
     "Update install failed.",
     "",
     `Command: \`${result.command}\``,
+    result.strategy ? `Last try: \`${result.strategy}\`` : "",
     `Exit: ${result.code}`,
     "",
     (result.stderr || result.stdout || "No output.").trim(),

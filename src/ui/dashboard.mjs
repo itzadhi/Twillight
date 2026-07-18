@@ -1,6 +1,6 @@
 import { bg, clean, clipVisible, rgb, theme, truncate } from "../utils/terminal.mjs"
 import { providerInfo } from "../providers/catalog.mjs"
-import { petSidebarLine } from "../pets/catalog.mjs"
+import { petAccess, petSidebarLine } from "../pets/catalog.mjs"
 
 export function renderDashboard(state) {
   const ui = state.ui
@@ -255,8 +255,9 @@ function sideRail(state, width, height = termRows() - 2) {
   const sections = [
     headerLine(`Session ${state.id}`),
     "",
+    ...petPanelLines(state, width),
+    "",
     label("Status"),
-    kv("pet", petLine(state)),
     kv("api", state.processing ? rgb(theme.thought, "busy") : rgb(theme.good, "idle")),
     kv("task", taskState),
     kv("step", progress),
@@ -344,6 +345,24 @@ function titleProvider(provider) {
 
 function petLine(state) {
   return petSidebarLine(state.config.pet, { isDeveloper: state.isProjectDeveloper, processing: state.processing })
+}
+
+function petPanelLines(state, width) {
+  const access = petAccess(state.config.pet, state.isProjectDeveloper)
+  const pet = access.activePet
+  const mood = access.allowed ? petLine(state) : access.pet.locked
+  const artWidth = Math.max(6, width - 4)
+  const art = (pet.sidebarArt || pet.art || [])
+    .slice(0, Math.max(2, width < 24 ? 3 : 5))
+    .map((line) => rgb(access.activeName === "dragon" ? theme.accent : theme.muted, truncate(line, artWidth)))
+  const trait = access.allowed ? pet.mood || pet.role : "developer only"
+  return [
+    label("Companion"),
+    kv("name", truncate(pet.title, width - 10)),
+    kv("mood", truncate(mood, width - 10)),
+    ...art,
+    kv("spark", truncate(trait, width - 10)),
+  ]
 }
 
 function shortCwd(value) {

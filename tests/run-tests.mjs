@@ -20,7 +20,7 @@ import { cloudflareEndpoint, isCloudflareChallengeText, normalizeProviderContent
 import { normalizeProviderName, providerInfo, providerNames } from "../src/providers/catalog.mjs"
 import { normalizePetName, petAccess, petSidebarLine } from "../src/pets/catalog.mjs"
 import { skillList } from "../src/skills/catalog.mjs"
-import { isNewerVersion, npmCommandSpec, npmCliPath, packageMetadata } from "../src/update/checker.mjs"
+import { isNewerVersion, npmCommandSpec, npmCommandSpecs, npmCliPath, packageMetadata } from "../src/update/checker.mjs"
 
 const root = mkdtempSync(join(tmpdir(), "twillight-"))
 process.env.TWILLIGHT_CONFIG_DIR = join(root, "config")
@@ -47,6 +47,9 @@ assert.equal(npmInstallSpec.display, "npm install -g twillight@latest")
 assert.equal(npmInstallSpec.args.includes("install"), true)
 assert.notEqual(npmInstallSpec.command, "")
 if (npmCliPath()) assert.equal(npmInstallSpec.command, process.execPath)
+const npmInstallSpecs = npmCommandSpecs(["install", "-g", "twillight@latest"])
+assert.equal(npmInstallSpecs[0].display, "npm install -g twillight@latest")
+assert.equal(npmInstallSpecs.some((spec) => spec.strategy), true)
 const previousProviderEnv = process.env.TWILLIGHT_PROVIDER
 const previousModelEnv = process.env.TWILLIGHT_MODEL
 const previousUpdateEnv = process.env.TWILLIGHT_UPDATE_CHECK
@@ -102,7 +105,7 @@ assert.equal(providerNames().includes("cloudflare"), true)
 assert.equal(normalizePetName("dragom"), "dragon")
 assert.equal(petAccess("dragon", false).allowed, false)
 assert.equal(petAccess("dragon", true).activePet.title, "Lavender Dragon")
-assert.equal(petSidebarLine("dragon", { isDeveloper: true, processing: false }), "dragon up")
+assert.equal(petSidebarLine("dragon", { isDeveloper: true, processing: false }), "dragon awake")
 assert.equal(petSidebarLine("dragon", { isDeveloper: false, processing: false }), "dragon lock")
 assert.equal(petSidebarLine("sprite", { isDeveloper: false, processing: true }), "sprite work")
 assert.equal(skillList().some((skill) => skill.id === "plan-first-build"), true)

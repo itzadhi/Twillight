@@ -61,42 +61,67 @@ export function rememberUpdateInstall(root, info) {
 }
 
 export function installGlobalUpdate(info) {
-  const spec = npmCommandSpec(["install", "-g", `${info.name || "twillight"}@latest`])
-  const result = spawnSync(spec.command, spec.args, {
-    encoding: "utf8",
-    windowsHide: true,
-    maxBuffer: 1024 * 1024 * 5,
-  })
-  return {
-    command: spec.display,
-    code: result.status ?? (result.error ? 1 : 0),
-    stdout: result.stdout || "",
-    stderr: result.stderr || result.error?.message || "",
+  const specs = npmCommandSpecs(["install", "-g", `${info.name || "twillight"}@latest`])
+  const attempts = []
+  for (const spec of specs) {
+    const attempt = runNpmSpec(spec)
+    attempts.push(attempt)
+    if (attempt.code === 0) return { ...attempt, attempts }
   }
+  const last = attempts.at(-1) || { command: "npm install -g twillight@latest", code: 1, stdout: "", stderr: "No npm executable was found." }
+  const stderr = attempts
+    .map((attempt) => `${attempt.strategy || "npm"}: exit ${attempt.code}\n${(attempt.stderr || attempt.stdout || "No output.").trim()}`)
+    .join("\n\n")
+  return { ...last, command: specs.map((spec) => spec.display).join(" -> "), stderr, attempts }
 }
 
 export function npmCommandSpec(args = []) {
+  return npmCommandSpecs(args)[0]
+}
+
+export function npmCommandSpecs(args = []) {
   const cleanArgs = args.map((arg) => String(arg))
+  const specs = []
   const cli = npmCliPath()
   if (cli) {
-    return {
+    specs.push({
       command: process.execPath,
       args: [cli, ...cleanArgs],
       display: `npm ${cleanArgs.join(" ")}`.trim(),
-    }
+      strategy: "node npm-cli",
+    })
   }
   if (process.platform === "win32") {
-    return {
-      command: "cmd.exe",
-      args: ["/d", "/s", "/c", "npm", ...cleanArgs],
-      display: `npm ${cleanArgs.join(" ")}`.trim(),
+    const localShim = join(dirname(process.execPath), "npm.cmd")
+    if (existsSync(localShim)) {
+      specs.push({
+        command: localShim,
+        args: cleanArgs,
+        display: `npm ${cleanArgs.join(" ")}`.trim(),
+        strategy: "node npm.cmd",
+      })
     }
+    specs.push({
+      command: "npm.cmd",
+      args: cleanArgs,
+      display: `npm ${cleanArgs.join(" ")}`.trim(),
+      strategy: "path npm.cmd",
+    })
+    specs.push({
+      command: "cmd.exe",
+      args: ["/d", "/c", ["npm", ...cleanArgs.map(quoteCmdArg)].join(" ")],
+      display: `npm ${cleanArgs.join(" ")}`.trim(),
+      strategy: "cmd npm",
+    })
+    return uniqueSpecs(specs)
   }
-  return {
+  specs.push({
     command: "npm",
     args: cleanArgs,
     display: `npm ${cleanArgs.join(" ")}`.trim(),
-  }
+    strategy: "path npm",
+  })
+  return uniqueSpecs(specs)
 }
 
 export function npmCliPath() {
@@ -158,6 +183,37 @@ function safeResolve(id) {
   } catch {
     return ""
   }
+}
+
+function runNpmSpec(spec) {
+  const result = spawnSync(spec.command, spec.args, {
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 1024 * 1024 * 5,
+  })
+  return {
+    command: spec.display,
+    strategy: spec.strategy || "npm",
+    code: result.status ?? (result.error ? 1 : 0),
+    stdout: result.stdout || "",
+    stderr: result.stderr || result.error?.message || "",
+  }
+}
+
+function uniqueSpecs(specs) {
+  const seen = new Set()
+  return specs.filter((spec) => {
+    const key = `${spec.command}\0${JSON.stringify(spec.args)}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function quoteCmdArg(value) {
+  const text = String(value)
+  if (!/[ \t"&<>^|]/.test(text)) return text
+  return `"${text.replace(/(["^])/g, "^$1")}"`
 }
 
 function semverParts(value) {
