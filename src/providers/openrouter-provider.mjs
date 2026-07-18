@@ -352,10 +352,18 @@ async function stream(response, callbacks) {
 }
 
 export function responseFromJson(data, debug = {}) {
-  const choice = data.choices?.[0] || {}
+  const choice = Array.isArray(data?.choices) ? data.choices[0] || {} : {}
+  const choiceMessage = choice.message || {}
+  const choiceContent =
+    normalizeProviderContent(choiceMessage.content)
+    || normalizeProviderContent(choiceMessage.reasoning_content)
+    || normalizeProviderContent(choiceMessage.reasoning)
+    || normalizeProviderContent(choice.delta?.content)
+    || normalizeProviderContent(choice.delta?.reasoning_content)
+    || normalizeProviderContent(choice.delta?.reasoning)
+    || normalizeProviderContent(choice.text)
   const direct =
-    normalizeProviderContent(data)
-    || normalizeProviderContent(data.response)
+    normalizeProviderContent(data.response)
     || normalizeProviderContent(data.content)
     || normalizeProviderContent(data.message)
     || normalizeProviderContent(data.output)
@@ -366,13 +374,11 @@ export function responseFromJson(data, debug = {}) {
     || normalizeProviderContent(data.result?.message)
     || normalizeProviderContent(data.tasks?.at?.(-1)?.response)
     || normalizeProviderContent(data.tasks?.at?.(-1)?.result)
+    || normalizeProviderContent(Array.isArray(data) ? data : "")
   return {
     content:
-      direct
-      || normalizeProviderContent(choice.message?.content)
-      || normalizeProviderContent(choice.message?.reasoning_content)
-      || normalizeProviderContent(choice.message?.reasoning)
-      || normalizeProviderContent(choice.text)
+      choiceContent
+      || direct
       || "",
     usage: data.usage || {},
     debug: {

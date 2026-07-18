@@ -10,7 +10,7 @@ import { assertPermission } from "../src/security/permissions.mjs"
 import { createRegistry } from "../src/tools/registry.mjs"
 import { createRenderer } from "../src/utils/terminal.mjs"
 import { createTaskStore, needsApproval, planLocalWorkflow } from "../src/agent/workflow.mjs"
-import { polishAssistantText, sanitizeAssistantText } from "../src/agent/agent-loop.mjs"
+import { assistantContentIssue, polishAssistantText, sanitizeAssistantText } from "../src/agent/agent-loop.mjs"
 import { canUseNativeRenderer, detectOpenTui } from "../src/ui/opentui-adapter.mjs"
 import { opentuiEnvSchema, readOpenTuiEnv } from "../src/ui/opentui-env.mjs"
 import { virtualComponents } from "../src/ui/virtual-components.mjs"
@@ -230,6 +230,9 @@ assert.equal(polishAssistantText("Theuserasks\"yourmodelname\".Thesystemsayswear
 assert.equal(polishAssistantText(Array(8).fill("Ortheywanttorun has a command to show help").join("\n")).includes("repeated itself"), true)
 assert.equal(polishAssistantText("Ortheywanttorunhasacommandtoshowhelpfortheassistant?".repeat(5)).includes("repeated itself"), true)
 assert.equal(polishAssistantText("I'masenior-gradecodingsystemwithawarmterminalpersonality.Icanhelpinspectfiles.Iunderstandyourproject.Icanusecommands.Ifollowplans.WhatIcanhelpwithincludesdebuggingandbuilds.").includes("I'm a senior-grade coding system"), true)
+const groqCompressed = "Itseemslikeyouenteredsomerandomcharacters.I'mheretohelpwithcodingandquestions.What'sonyourmind?"
+assert.equal(polishAssistantText(groqCompressed).includes("It seems like"), true)
+assert.equal(assistantContentIssue("Theuseraskswhatcando.ThislookslikeatypoTheyprobablymeantwhatcanIdo.Ishouldanswerclearlyandhelpfully.Themodelshouldnotincludehiddenreasoning.Butweonlyneedaclearshortanswer.WhatcanIhelpyoubuildtoday?"), "compressed")
 assert.equal(sanitizeAssistantText("I'll do it.<|tool_calls_section_begin|><|tool_call_begin|>functions.execute_command<|tool_call_argument_begin|>{\"command\":\"mkdir V:\\\\t34\"}<|tool_call_end|><|tool_calls_section_end|>").includes("Detected draft command"), true)
 assert.equal(sanitizeAssistantText("I'll create it.<functions.execute_command>{\"command\":\"mkdir V:\\\\t34\"}</functions.execute_command>").includes("Detected draft command"), true)
 assert.equal(isLikelyModelId("19"), false)
@@ -246,6 +249,7 @@ assert.equal(normalizeProviderContent({ response: { text: "nested worker answer"
 assert.equal(responseFromJson({ result: { response: { content: "cf answer" } } }).content, "cf answer")
 assert.equal(responseFromJson({ tasks: [{ response: { response: "task answer" } }] }).content, "task answer")
 assert.equal(responseFromJson([{ response: "array task answer" }]).content, "array task answer")
+assert.equal(responseFromJson({ response: "wrong wrapper", choices: [{ message: { content: "real chat answer" } }] }).content, "real chat answer")
 assert.equal(cloudflareEndpoint("https://ai.itzadhi.in", "chat"), "https://ai.itzadhi.in/v1/chat/completions")
 assert.equal(cloudflareEndpoint("https://ai.itzadhi.in", "models"), "https://ai.itzadhi.in/models")
 assert.equal(cloudflareEndpoint("https://ai.itzadhi.in/chat", "models"), "https://ai.itzadhi.in/models")
