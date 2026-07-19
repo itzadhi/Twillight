@@ -7,99 +7,96 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <section class="workspace">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Twillight Web</p>
-            <h1>Autonomous coding control panel</h1>
-          </div>
-          <div class="status-pill" id="auth-pill">Checking auth</div>
-        </header>
+    <main class="app-shell">
+      <aside class="rail" aria-label="Twillight sections">
+        <div class="brand-mark">T</div>
+        <button type="button" data-jump="overview" class="rail-button active">Overview</button>
+        <button type="button" data-jump="runtime" class="rail-button">Runtime</button>
+        <button type="button" data-jump="tools" class="rail-button">Tools</button>
+        <button type="button" data-jump="interface" class="rail-button">UI</button>
+        <button type="button" data-jump="sound" class="rail-button">Sound</button>
+      </aside>
 
-        <section class="hero-panel" aria-label="Twillight terminal preview">
-          <pre class="ascii" aria-hidden="true">T W I L L I G H T</pre>
-          <p class="subtitle">Configure provider, model, permissions, and Discord access from one calm web cockpit.</p>
-          <div class="terminal-strip">
+      <section class="main-column">
+        <section class="terminal-hero" id="overview">
+          <pre class="ascii" aria-label="Twillight">TWILLIGHT</pre>
+          <p class="subtitle">local autonomous coding client · same CLI brain · web control cockpit</p>
+          <div class="command-bar">
             <span>Build</span>
-            <span id="strip-provider">OpenRouter</span>
+            <strong id="strip-provider">OpenRouter</strong>
             <span id="strip-model">cohere/north-mini-code:free</span>
-            <strong id="strip-cwd">workspace</strong>
+            <em id="strip-cwd">workspace</em>
+          </div>
+          <div class="quick-grid">
+            <button type="button" data-preset-provider="cloudflare">Cloudflare</button>
+            <button type="button" data-preset-provider="groq">Groq</button>
+            <button type="button" data-preset-perm="standard">Standard</button>
+            <button type="button" data-preset-tools="all">All tools</button>
           </div>
         </section>
 
-        <section class="grid">
-          <form class="panel config-panel" id="config-form">
-            <div class="panel-title">
+        <form id="config-form" class="dashboard">
+          <section class="card span-2" id="runtime">
+            <div class="card-head">
               <div>
-                <p class="eyebrow">Project Config</p>
-                <h2>Runtime</h2>
+                <p class="eyebrow">Runtime</p>
+                <h1>Provider and model</h1>
               </div>
-              <button type="submit">Save config</button>
+              <button type="submit" class="primary">Save all</button>
             </div>
+            <div class="form-grid">
+              <label>
+                Provider
+                <select name="provider" id="provider-select"></select>
+              </label>
+              <label>
+                Active model
+                <input name="model" id="model-input" autocomplete="off" spellcheck="false">
+              </label>
+              <label>
+                Cloudflare gateway
+                <input name="cloudflareGatewayUrl" id="gateway-input" autocomplete="off" spellcheck="false" placeholder="https://ai.example.com">
+              </label>
+              <label>
+                Uncensored/free model fallback
+                <input name="uncensoredModel" id="uncensored-input" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="wide">
+                Fallback models
+                <input name="fallbackModels" id="fallback-input" autocomplete="off" spellcheck="false">
+              </label>
+            </div>
+          </section>
 
-            <label>
-              Provider
-              <select name="provider" id="provider-select"></select>
-            </label>
-
-            <label>
-              Model
-              <input name="model" id="model-input" autocomplete="off" spellcheck="false">
-            </label>
-
-            <label>
-              Cloudflare gateway URL
-              <input name="cloudflareGatewayUrl" id="gateway-input" autocomplete="off" spellcheck="false" placeholder="https://ai.example.com">
-            </label>
-
-            <div class="segmented" role="group" aria-label="Agent mode">
+          <section class="card" id="tools">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Agent</p>
+                <h2>Workflow</h2>
+              </div>
+            </div>
+            <div class="segmented">
               <label><input type="radio" name="agentMode" value="build"> Build</label>
               <label><input type="radio" name="agentMode" value="plan"> Plan</label>
             </div>
-
-            <div class="segmented" role="group" aria-label="Permission mode">
+            <div class="segmented stack">
               <label><input type="radio" name="permissionMode" value="read-only"> Read only</label>
               <label><input type="radio" name="permissionMode" value="workspace"> Workspace</label>
               <label><input type="radio" name="permissionMode" value="standard"> Standard</label>
               <label><input type="radio" name="permissionMode" value="full-access"> Full access</label>
             </div>
-
-            <label>
-              Tools
-              <input name="enabledTools" id="tools-input" autocomplete="off" spellcheck="false">
-            </label>
-
             <div class="toggles">
-              <label><input type="checkbox" name="updateCheck"> Update checks</label>
-              <label><input type="checkbox" name="autoUpdate"> Auto update prompt</label>
-            </div>
-
-            <p class="save-state" id="save-state">Changes save to .ai/config.yaml. Secrets are never shown here.</p>
-          </form>
-
-          <section class="panel">
-            <div class="panel-title">
-              <div>
-                <p class="eyebrow">Discord Auth</p>
-                <h2>Access</h2>
-              </div>
-              <a class="button-link" id="discord-login" href="/auth/discord">Login</a>
-            </div>
-            <div class="auth-card" id="auth-card"></div>
-            <div class="setup-box">
-              <strong>Required env</strong>
-              <code>DISCORD_CLIENT_ID</code>
-              <code>DISCORD_CLIENT_SECRET</code>
-              <code>DISCORD_REDIRECT_URI</code>
-              <code>TWILLIGHT_WEB_SESSION_SECRET</code>
+              <label><input type="checkbox" name="streaming"> Streaming</label>
+              <label><input type="checkbox" name="actions"> Local actions</label>
+              <label><input type="checkbox" name="status"> Status UI</label>
+              <label><input type="checkbox" name="compact"> Compact output</label>
             </div>
           </section>
 
-          <section class="panel provider-panel">
-            <div class="panel-title">
+          <section class="card provider-card">
+            <div class="card-head">
               <div>
-                <p class="eyebrow">Provider Catalog</p>
+                <p class="eyebrow">Catalog</p>
                 <h2>Models</h2>
               </div>
               <button type="button" id="use-default">Use default</button>
@@ -107,21 +104,101 @@
             <div id="provider-detail"></div>
           </section>
 
-          <section class="panel command-panel">
-            <div class="panel-title">
+          <section class="card span-2">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Tools</p>
+                <h2>Local access</h2>
+              </div>
+              <button type="button" id="tools-all">Enable all</button>
+            </div>
+            <label>
+              Enabled tools
+              <input name="enabledTools" id="tools-input" autocomplete="off" spellcheck="false">
+            </label>
+            <label>
+              Command allowlist
+              <textarea name="commandAllowlist" id="allowlist-input" spellcheck="false"></textarea>
+            </label>
+          </section>
+
+          <section class="card" id="interface">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Interface</p>
+                <h2>CLI style</h2>
+              </div>
+            </div>
+            <label>
+              Density
+              <select name="dashboardDensity" id="density-select">
+                <option value="comfortable">Comfortable</option>
+                <option value="balanced">Balanced</option>
+                <option value="compact">Compact</option>
+              </select>
+            </label>
+            <label>
+              Pet
+              <select name="pet" id="pet-select">
+                <option value="sprite">Twillight sprite</option>
+                <option value="none">No pet</option>
+              </select>
+            </label>
+            <div class="terminal-preview">
+              <span>Twillight ›</span>
+              <p>Ask naturally, configure here, run from the CLI anywhere.</p>
+            </div>
+          </section>
+
+          <section class="card" id="sound">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Sound</p>
+                <h2>Feedback</h2>
+              </div>
+              <button type="button" id="test-sound">Test</button>
+            </div>
+            <div class="toggles">
+              <label><input type="checkbox" name="webSound"> Web sounds</label>
+              <label><input type="checkbox" name="updateCheck"> Update checks</label>
+              <label><input type="checkbox" name="autoUpdate"> Auto update prompt</label>
+            </div>
+            <label>
+              Sound theme
+              <select name="soundTheme" id="sound-theme"></select>
+            </label>
+            <label>
+              Volume
+              <input type="range" name="soundVolume" id="sound-volume" min="0" max="100">
+            </label>
+          </section>
+
+          <section class="card numbers">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Limits</p>
+                <h2>Request tuning</h2>
+              </div>
+            </div>
+            <label>Max tokens <input type="number" name="maxTokens" id="max-tokens" min="256" max="131072"></label>
+            <label>Timeout ms <input type="number" name="requestTimeoutMs" id="timeout-ms" min="5000" max="600000"></label>
+            <label>Queue delay ms <input type="number" name="queueDelayMs" id="queue-delay" min="0" max="10000"></label>
+            <label>Temperature <input type="number" name="temperature" id="temperature" min="0" max="2" step="0.1"></label>
+          </section>
+
+          <section class="card command-card">
+            <div class="card-head">
               <div>
                 <p class="eyebrow">Launch</p>
                 <h2>Commands</h2>
               </div>
             </div>
-            <div class="command-list">
-              <code>twillight</code>
-              <code>twillight-web</code>
-              <code>npm run web</code>
-            </div>
-            <p>Run this website inside any project folder and Twillight will use that folder as its workspace.</p>
+            <code>twillight</code>
+            <code>twillight-web</code>
+            <code>npm run web</code>
+            <p id="save-state">Ready. No login, no cloud gate, local config only.</p>
           </section>
-        </section>
+        </form>
       </section>
     </main>
     <script src="/app.js" type="module"></script>

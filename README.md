@@ -58,7 +58,7 @@ Run the local browser control panel from any project folder:
 twillight-web
 ```
 
-Open `http://127.0.0.1:4177` to configure provider, model, permissions, tools, Cloudflare gateway, and Discord OAuth access. See [Web Dashboard](docs/web.md).
+Open `http://127.0.0.1:4177` to configure provider, model, permissions, tools, Cloudflare gateway, runtime limits, UI density, and CLI-style sounds. See [Web Dashboard](docs/web.md).
 
 ## Provider Setup
 

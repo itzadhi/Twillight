@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { createServer } from "node:http"
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { basename, extname, join, resolve, sep } from "node:path"
@@ -11,19 +10,32 @@ import { normalizeProviderName, providerInfo, providerNames } from "../providers
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 const publicDir = join(__dirname, "public")
-const SESSION_COOKIE = "tw_session"
-const STATE_COOKIE = "tw_oauth_state"
 const MAX_BODY_BYTES = 64 * 1024
 const CONFIG_KEYS = [
   "provider",
   "model",
+  "fallbackModels",
+  "uncensoredModel",
   "permissionMode",
   "agentMode",
   "enabledTools",
+  "commandAllowlist",
   "cloudflareGatewayUrl",
   "updateCheck",
   "autoUpdate",
+  "streaming",
+  "actions",
+  "status",
+  "compact",
+  "maxTokens",
+  "requestTimeoutMs",
+  "queueDelayMs",
+  "temperature",
   "pet",
+  "webSound",
+  "soundTheme",
+  "soundVolume",
+  "dashboardDensity",
 ]
 
 const mimeTypes = {
@@ -37,34 +49,11 @@ const mimeTypes = {
 export function createWebServer(options = {}) {
   const env = options.env || process.env
   const cwd = options.cwd || process.cwd()
-  const sessionSecret = env.TWILLIGHT_WEB_SESSION_SECRET || randomBytes(32).toString("hex")
   return createServer((request, response) => {
-    handleRequest(request, response, { cwd, env, sessionSecret }).catch((error) => {
+    handleRequest(request, response, { cwd, env }).catch((error) => {
       sendJson(response, 500, { ok: false, error: "web_server_error", message: error.message })
     })
   })
-}
-
-export function discordAuthEnabled(env = process.env) {
-  return Boolean(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET && discordRedirectUri(env))
-}
-
-export function discordRedirectUri(env = process.env) {
-  return env.DISCORD_REDIRECT_URI || env.TWILLIGHT_WEB_DISCORD_REDIRECT_URI || ""
-}
-
-export function createDiscordAuthUrl(env = process.env, state = randomBytes(16).toString("hex")) {
-  const redirectUri = discordRedirectUri(env)
-  if (!env.DISCORD_CLIENT_ID || !redirectUri) return ""
-  const params = new URLSearchParams({
-    client_id: env.DISCORD_CLIENT_ID,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "identify email",
-    state,
-    prompt: "consent",
-  })
-  return `https://discord.com/oauth2/authorize?${params}`
 }
 
 export function publicConfig(config = loadConfig([])) {
@@ -74,13 +63,28 @@ export function publicConfig(config = loadConfig([])) {
     provider,
     providerTitle: info.title,
     model: String(config.model || info.defaultModel),
+    fallbackModels: String(config.fallbackModels || defaults.fallbackModels),
+    uncensoredModel: String(config.uncensoredModel || defaults.uncensoredModel),
     permissionMode: String(config.permissionMode || defaults.permissionMode),
     agentMode: String(config.agentMode || defaults.agentMode),
     enabledTools: String(config.enabledTools || defaults.enabledTools),
+    commandAllowlist: String(config.commandAllowlist || defaults.commandAllowlist),
     cloudflareGatewayUrl: String(config.cloudflareGatewayUrl || defaults.cloudflareGatewayUrl),
     updateCheck: Boolean(config.updateCheck),
     autoUpdate: Boolean(config.autoUpdate),
+    streaming: Boolean(config.streaming),
+    actions: Boolean(config.actions),
+    status: Boolean(config.status),
+    compact: Boolean(config.compact),
+    maxTokens: numberOr(config.maxTokens, defaults.maxTokens),
+    requestTimeoutMs: numberOr(config.requestTimeoutMs, defaults.requestTimeoutMs),
+    queueDelayMs: numberOr(config.queueDelayMs, defaults.queueDelayMs),
+    temperature: numberOr(config.temperature, defaults.temperature),
     pet: String(config.pet || defaults.pet),
+    webSound: config.webSound === undefined ? true : Boolean(config.webSound),
+    soundTheme: String(config.soundTheme || "crystal"),
+    soundVolume: numberOr(config.soundVolume, 35),
+    dashboardDensity: String(config.dashboardDensity || "balanced"),
   }
 }
 
@@ -113,15 +117,10 @@ async function handleRequest(request, response, context) {
   if (url.pathname === "/api/status") return sendJson(response, 200, await statusPayload(request, context))
   if (url.pathname === "/api/config" && request.method === "GET") return sendJson(response, 200, { ok: true, config: publicConfig(loadConfig([])) })
   if (url.pathname === "/api/config" && request.method === "POST") return updateConfig(request, response, context)
-  if (url.pathname === "/auth/discord") return beginDiscordAuth(request, response, context)
-  if (url.pathname === "/auth/discord/callback") return completeDiscordAuth(url, request, response, context)
-  if (url.pathname === "/auth/logout") return logout(response)
   return serveStatic(url.pathname, response)
 }
 
 async function statusPayload(request, context) {
-  const session = readSession(request, context)
-  const authEnabled = discordAuthEnabled(context.env)
   const config = publicConfig(loadConfig([]))
   return {
     ok: true,
@@ -129,21 +128,17 @@ async function statusPayload(request, context) {
     cwd: context.cwd,
     platform: process.platform,
     node: process.version,
-    auth: {
-      enabled: authEnabled,
-      loggedIn: Boolean(session),
-      user: session?.user || null,
-      discordLoginUrl: authEnabled ? "/auth/discord" : "",
-      requiredEnv: authEnabled ? [] : ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_REDIRECT_URI"],
-    },
+    localOnly: true,
     config,
     providers: providerOptions(),
+    soundThemes: ["crystal", "terminal", "soft", "mute"],
+    densityModes: ["comfortable", "balanced", "compact"],
     commands: ["twillight", "twillight-web", "npm run web"],
   }
 }
 
 async function updateConfig(request, response, context) {
-  const authorized = isLocalRequest(request) || readSession(request, context)
+  const authorized = isLocalRequest(request)
   if (!authorized) return sendJson(response, 401, { ok: false, error: "auth_required" })
   const body = await readJsonBody(request)
   const next = validateConfigInput(body)
@@ -163,6 +158,14 @@ function validateConfigInput(body) {
     if (!model || model.length > 160 || /[\r\n]/.test(model)) throw new Error("Invalid model")
     result.model = model
   }
+  if (body.fallbackModels !== undefined) {
+    const value = cleanList(body.fallbackModels, 1200, "Invalid fallback models")
+    if (value) result.fallbackModels = value
+  }
+  if (body.uncensoredModel !== undefined) {
+    const value = cleanScalar(body.uncensoredModel, 180, "Invalid uncensored model")
+    if (value) result.uncensoredModel = value
+  }
   if (body.permissionMode !== undefined) {
     const value = String(body.permissionMode)
     if (!["read-only", "workspace", "standard", "full-access"].includes(value)) throw new Error("Invalid permission mode")
@@ -178,6 +181,10 @@ function validateConfigInput(body) {
     if (!value || value.length > 400 || /[\r\n]/.test(value)) throw new Error("Invalid tools value")
     result.enabledTools = value
   }
+  if (body.commandAllowlist !== undefined) {
+    const value = cleanList(body.commandAllowlist, 2000, "Invalid command allowlist")
+    if (value) result.commandAllowlist = value
+  }
   if (body.cloudflareGatewayUrl !== undefined) {
     const value = String(body.cloudflareGatewayUrl).trim()
     if (value && !/^https?:\/\/[^\s]+$/i.test(value)) throw new Error("Gateway URL must start with http:// or https://")
@@ -185,12 +192,66 @@ function validateConfigInput(body) {
   }
   if (body.updateCheck !== undefined) result.updateCheck = Boolean(body.updateCheck)
   if (body.autoUpdate !== undefined) result.autoUpdate = Boolean(body.autoUpdate)
+  if (body.streaming !== undefined) result.streaming = Boolean(body.streaming)
+  if (body.actions !== undefined) result.actions = Boolean(body.actions)
+  if (body.status !== undefined) result.status = Boolean(body.status)
+  if (body.compact !== undefined) result.compact = Boolean(body.compact)
+  if (body.maxTokens !== undefined) result.maxTokens = intRange(body.maxTokens, 256, 131072, "Invalid max tokens")
+  if (body.requestTimeoutMs !== undefined) result.requestTimeoutMs = intRange(body.requestTimeoutMs, 5000, 600000, "Invalid timeout")
+  if (body.queueDelayMs !== undefined) result.queueDelayMs = intRange(body.queueDelayMs, 0, 10000, "Invalid queue delay")
+  if (body.temperature !== undefined) result.temperature = floatRange(body.temperature, 0, 2, "Invalid temperature")
   if (body.pet !== undefined) {
     const value = String(body.pet).trim().toLowerCase()
     if (!["sprite", "none"].includes(value)) throw new Error("Invalid pet")
     result.pet = value
   }
+  if (body.webSound !== undefined) result.webSound = Boolean(body.webSound)
+  if (body.soundTheme !== undefined) {
+    const value = String(body.soundTheme).trim().toLowerCase()
+    if (!["crystal", "terminal", "soft", "mute"].includes(value)) throw new Error("Invalid sound theme")
+    result.soundTheme = value
+  }
+  if (body.soundVolume !== undefined) result.soundVolume = intRange(body.soundVolume, 0, 100, "Invalid sound volume")
+  if (body.dashboardDensity !== undefined) {
+    const value = String(body.dashboardDensity).trim().toLowerCase()
+    if (!["comfortable", "balanced", "compact"].includes(value)) throw new Error("Invalid dashboard density")
+    result.dashboardDensity = value
+  }
   return result
+}
+
+function cleanScalar(value, maxLength, message) {
+  const text = String(value || "").trim()
+  if (text && (text.length > maxLength || /[\r\n]/.test(text))) throw new Error(message)
+  return text
+}
+
+function cleanList(value, maxLength, message) {
+  const text = String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(",")
+    .trim()
+  if (text && text.length > maxLength) throw new Error(message)
+  return text
+}
+
+function intRange(value, min, max, message) {
+  const number = Number(value)
+  if (!Number.isInteger(number) || number < min || number > max) throw new Error(message)
+  return number
+}
+
+function floatRange(value, min, max, message) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < min || number > max) throw new Error(message)
+  return number
+}
+
+function numberOr(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 async function writeProjectConfig(cwd, updates) {
@@ -226,78 +287,6 @@ function yamlValue(value) {
   return JSON.stringify(text)
 }
 
-async function beginDiscordAuth(request, response, context) {
-  if (!discordAuthEnabled(context.env)) {
-    return sendJson(response, 400, { ok: false, error: "discord_not_configured", requiredEnv: ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_REDIRECT_URI"] })
-  }
-  const state = randomBytes(24).toString("hex")
-  response.setHeader("Set-Cookie", cookie(STATE_COOKIE, signValue(state, context.sessionSecret), { maxAge: 600 }))
-  response.writeHead(302, { Location: createDiscordAuthUrl(context.env, state) })
-  response.end()
-}
-
-async function completeDiscordAuth(url, request, response, context) {
-  const code = url.searchParams.get("code")
-  const state = url.searchParams.get("state")
-  const signedState = parseCookies(request.headers.cookie || "")[STATE_COOKIE]
-  if (!code || !state || !verifySignedValue(signedState, state, context.sessionSecret)) {
-    return sendJson(response, 400, { ok: false, error: "invalid_oauth_state" })
-  }
-
-  const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: context.env.DISCORD_CLIENT_ID,
-      client_secret: context.env.DISCORD_CLIENT_SECRET,
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: discordRedirectUri(context.env),
-    }),
-  })
-  if (!tokenResponse.ok) return sendJson(response, 502, { ok: false, error: "discord_token_failed" })
-  const token = await tokenResponse.json()
-  const userResponse = await fetch("https://discord.com/api/users/@me", {
-    headers: { authorization: `Bearer ${token.access_token}` },
-  })
-  if (!userResponse.ok) return sendJson(response, 502, { ok: false, error: "discord_user_failed" })
-  const user = await userResponse.json()
-  const session = signValue(JSON.stringify({ user: publicDiscordUser(user), at: Date.now() }), context.sessionSecret)
-  response.setHeader("Set-Cookie", [
-    cookie(SESSION_COOKIE, session, { maxAge: 60 * 60 * 24 * 14 }),
-    cookie(STATE_COOKIE, "", { maxAge: 0 }),
-  ])
-  response.writeHead(302, { Location: "/" })
-  response.end()
-}
-
-function publicDiscordUser(user) {
-  return {
-    id: String(user.id || ""),
-    username: String(user.username || ""),
-    globalName: String(user.global_name || user.username || ""),
-    avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=128` : "",
-  }
-}
-
-function readSession(request, context) {
-  const signed = parseCookies(request.headers.cookie || "")[SESSION_COOKIE]
-  const value = unsignValue(signed, context.sessionSecret)
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(value)
-    if (Date.now() - Number(parsed.at || 0) > 60 * 60 * 24 * 14 * 1000) return null
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-function logout(response) {
-  response.writeHead(302, { Location: "/", "Set-Cookie": cookie(SESSION_COOKIE, "", { maxAge: 0 }) })
-  response.end()
-}
-
 async function serveStatic(pathname, response) {
   const target = pathname === "/" ? "index.html" : pathname.slice(1)
   const safeTarget = target.split("/").map((part) => basename(part)).join(sep)
@@ -329,7 +318,7 @@ async function readJsonBody(request) {
 function setBaseHeaders(response) {
   response.setHeader("x-content-type-options", "nosniff")
   response.setHeader("referrer-policy", "no-referrer")
-  response.setHeader("content-security-policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+  response.setHeader("content-security-policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")
 }
 
 function sendJson(response, status, body) {
@@ -337,50 +326,9 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body))
 }
 
-function parseCookies(header) {
-  return Object.fromEntries(
-    String(header || "")
-      .split(";")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        const index = item.indexOf("=")
-        return [decodeURIComponent(item.slice(0, index)), decodeURIComponent(item.slice(index + 1))]
-      }),
-  )
-}
-
-function cookie(name, value, options = {}) {
-  const parts = [`${encodeURIComponent(name)}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax"]
-  if (options.maxAge !== undefined) parts.push(`Max-Age=${Number(options.maxAge)}`)
-  return parts.join("; ")
-}
-
-function signValue(value, secret) {
-  const signature = createHmac("sha256", secret).update(value).digest("base64url")
-  return `${Buffer.from(value).toString("base64url")}.${signature}`
-}
-
-function unsignValue(signed, secret) {
-  if (!signed || !signed.includes(".")) return ""
-  const [encoded, signature] = signed.split(".")
-  const value = Buffer.from(encoded, "base64url").toString("utf8")
-  return verifySignature(value, signature, secret) ? value : ""
-}
-
-function verifySignedValue(signed, expected, secret) {
-  return unsignValue(signed, secret) === expected
-}
-
-function verifySignature(value, signature, secret) {
-  const expected = createHmac("sha256", secret).update(value).digest("base64url")
-  const left = Buffer.from(signature || "")
-  const right = Buffer.from(expected)
-  return left.length === right.length && timingSafeEqual(left, right)
-}
-
 function isLocalRequest(request) {
-  const host = String(request.headers.host || "").split(":")[0]
+  const rawHost = String(request.headers.host || "").trim().toLowerCase()
+  const host = rawHost.startsWith("[") ? rawHost.slice(0, rawHost.indexOf("]") + 1) : rawHost.split(":")[0]
   return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)
 }
 
